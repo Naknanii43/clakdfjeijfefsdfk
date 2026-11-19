@@ -36,11 +36,11 @@ jobs:
             | cat - "$f" > "$f.new" && mv "$f.new" "$f"
           grep -rln "CGWindowListCreateImage" Juce/modules || true
 
-      - name: Build Camomile instrument (VST3 + AU, Universal)
+      - name: Build Camomile instrument (VST3, Universal)
         working-directory: camomile-src
         run: |
           cmake -B build -G Xcode -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-          cmake --build build --config Release --target Camomile_VST3 Camomile_AU -- -quiet
+          cmake --build build --config Release --target Camomile_VST3 -- -quiet
           ls -la Plugins
 
       - name: Wrap Clonk Goblin into the Camomile bundles
@@ -48,6 +48,7 @@ jobs:
           mkdir -p out
           chmod +x camomile-src/Plugins/camomile
           (cd camomile-src/Plugins && ./camomile -f "$GITHUB_WORKSPACE/ClonkGoblin" -o "$GITHUB_WORKSPACE/out") || true
+          rm -rf out/*.component out/*.lv2
           ls -la out
           test -d out/ClonkGoblin.vst3
 
@@ -67,10 +68,8 @@ jobs:
           cp "$GITHUB_WORKSPACE/README.md" ClonkGoblin-README.md 2>/dev/null || true
           cat > INSTALL.txt <<'EOF'
           1. Copy ClonkGoblin.vst3      -> ~/Library/Audio/Plug-Ins/VST3/
-             Copy ClonkGoblin.component -> ~/Library/Audio/Plug-Ins/Components/  (Logic / AU hosts)
           2. In Terminal run (removes the "downloaded from the internet" flag):
              xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/ClonkGoblin.vst3
-             xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/ClonkGoblin.component
           3. Rescan plugins in your DAW and add "ClonkGoblin" as an instrument.
           EOF
           cd ..
