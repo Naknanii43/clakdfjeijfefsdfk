@@ -1,0 +1,70 @@
+name: Build Clonk Goblin VST3 (macOS)
+
+# Builds Camomile from source on an Apple Silicon runner (Universal: arm64 +
+# x86_64), wraps the ClonkGoblin patch into it, ad-hoc signs the bundles and
+# uploads a zip you can download from the run's "Artifacts" section.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ClonkGoblin/**"
+      - ".github/workflows/build-vst3.yml"
+
+jobs:
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get Camomile source (pinned)
+        run: |
+          git clone --recursive https://github.com/pierreguillot/Camomile.git camomile-src
+          cd camomile-src
+          git checkout 03fe380
+          git submodule update --init --recursive
+
+      - name: Build Camomile instrument (VST3 + AU, Universal)
+        working-directory: camomile-src
+        run: |
+          cmake -B build -G Xcode -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+          cmake --build build --config Release --target Camomile_VST3 Camomile_AU -- -quiet
+          ls -la Plugins
+
+      - name: Wrap Clonk Goblin into the Camomile bundles
+        run: |
+          mkdir -p out
+          chmod +x camomile-src/Plugins/camomile
+          (cd camomile-src/Plugins && ./camomile -f "$GITHUB_WORKSPACE/ClonkGoblin" -o "$GITHUB_WORKSPACE/out") || true
+          ls -la out
+          test -d out/ClonkGoblin.vst3
+
+      - name: Ad-hoc sign + check architectures
+        run: |
+          for b in out/ClonkGoblin.vst3 out/ClonkGoblin.component; do
+            [ -d "$b" ] || continue
+            xattr -cr "$b"
+            codesign --force --deep --sign - "$b"
+            codesign --verify --deep --strict --verbose=2 "$b"
+            lipo -archs "$b"/Contents/MacOS/*
+          done
+
+      - name: Package
+        run: |
+          cd out
+          cp "$GITHUB_WORKSPACE/README.md" ClonkGoblin-README.md 2>/dev/null || true
+          cat > INSTALL.txt <<'EOF'
+          1. Copy ClonkGoblin.vst3      -> ~/Library/Audio/Plug-Ins/VST3/
+             Copy ClonkGoblin.component -> ~/Library/Audio/Plug-Ins/Components/  (Logic / AU hosts)
+          2. In Terminal run (removes the "downloaded from the internet" flag):
+             xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/ClonkGoblin.vst3
+             xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/ClonkGoblin.component
+          3. Rescan plugins in your DAW and add "ClonkGoblin" as an instrument.
+          EOF
+          cd ..
+          ditto -c -k --sequesterRsrc out ClonkGoblin-macOS-Universal.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClonkGoblin-macOS-Universal
+          path: ClonkGoblin-macOS-Universal.zip

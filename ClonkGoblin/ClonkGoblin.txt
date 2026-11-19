@@ -1,0 +1,17 @@
+type instrument;
+code ClGb;
+midiin true;
+midiout false;
+playhead true;
+bus 0 2;
+taillength 4;
+compatibility v1.0.7;
+param -name Bank -min 0 -max 519 -default 0 -nsteps 520;
+param -name Tune -label st -min -24 -max 24 -default 0;
+param -name Decay -min -2 -max 2 -default 0;
+param -name Tone -label st -min -36 -max 36 -default 0;
+param -name Crunch -min 0 -max 1 -default 0;
+param -name Drunk -min 0 -max 1 -default 0;
+param -name Space -min 0 -max 1 -default 0;
+param -name Mode -list Play/Arp/Seq/SeqArp -default 2;
+param -name Volume -min 0 -max 1 -default 0.8;
