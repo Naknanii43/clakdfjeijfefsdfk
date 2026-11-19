@@ -24,6 +24,18 @@ jobs:
           git checkout 03fe380
           git submodule update --init --recursive
 
+      - name: Patch old JUCE for the current macOS SDK
+        working-directory: camomile-src
+        run: |
+          # CGWindowListCreateImage was removed in the macOS 15 SDK. JUCE only uses
+          # it for window snapshots, which Camomile never calls -> stub it out.
+          f=Juce/modules/juce_gui_basics/native/juce_mac_Windowing.mm
+          printf '%s\n' \
+            'static inline CGImageRef juce_stub_CGWindowListCreateImage (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) { return nullptr; }' \
+            '#define CGWindowListCreateImage juce_stub_CGWindowListCreateImage' \
+            | cat - "$f" > "$f.new" && mv "$f.new" "$f"
+          grep -rln "CGWindowListCreateImage" Juce/modules || true
+
       - name: Build Camomile instrument (VST3 + AU, Universal)
         working-directory: camomile-src
         run: |
