@@ -332,7 +332,7 @@ def gen_voice():
     vnote = o("v cgxnote")
     p.c(trig, vnote, nb)
     out_i = nb - 1
-    pan = o(f"expr 0.5+(random(0, 1001)/1000-0.5)*{W}")
+    pan = o("expr 0.5")  # every hit dead centre (DRUNK now only detunes)
     p.c(trig, pan, out_i)
     vpan = o("v cgxpan")
     p.c(pan, vpan)
@@ -708,14 +708,16 @@ def gen_fx():
     mono = o("*~ 0.5")
     p.c(il, mono)
     p.c(ir, mono)
-    dwl = o("delwrite~ $0-dl 3000")
-    dwr = o("delwrite~ $0-dr 3000")
+    # balanced echo: both sides get the same input and the same time = equal L/R
+    dwl = o("delwrite~ $0-dl 4500")
+    dwr = o("delwrite~ $0-dr 4500")
     p.c(mono, dwl)
+    p.c(mono, dwr)
     vdl = o("vd~ $0-dl")
     vdr = o("vd~ $0-dr")
     p.c(tline, vdl)
     p.c(tline, vdr)
-    for src, dst in ((vdl, dwr), (vdr, dwl)):
+    for src, dst in ((vdl, dwl), (vdr, dwr)):
         lp = o("lop~ 3200")
         p.c(src, lp)
         hp = o("hip~ 90")
@@ -742,9 +744,13 @@ def gen_fx():
 
     # reverb
     p.at(600, 40)
-    rin = o("*~ 0.25")
-    p.c(sl, rin)
-    p.c(sr, rin)
+    rin0 = o("*~ 0.25")
+    p.c(sl, rin0)
+    p.c(sr, rin0)
+    rin1 = o("hip~ 220")  # keep the lows out of the reverb (less mud, equal L/R)
+    p.c(rin0, rin1)
+    rin = o("hip~ 220")
+    p.c(rin1, rin)
     combs = []
     for k, ms in enumerate((29.7, 37.1, 41.1, 43.7)):
         sm = o("+~")
@@ -780,7 +786,8 @@ def gen_fx():
 
     a1 = allpass(csum, "a1", 5.1)
     revl = allpass(a1, "al", 1.7)
-    revr = allpass(a1, "ar", 2.3)
+    # identical reverb on both sides: percussion stays perfectly centred
+    revr = revl
     wsl = o("*~")
     wsr = o("*~")
     p.c(revl, wsl)

@@ -25,7 +25,7 @@ FIL_P = [("cut", "CUTOFF", 20, 135, 0, 80), ("res", "RESONANCE", 0.5, 8, 1, 1),
          ("lfof", "LFO>CUT", 0, 36, 0, 6), ("lfop", "LFO>PITCH", 0, 1, 0, 0.1)]
 AMP_P = [("att", "ATTACK", 1, 8000, 1, 1500), ("dec", "DECAY", 10, 8000, 1, 3000),
          ("sus", "SUSTAIN", 0, 1, 0, 0.8), ("rel", "RELEASE", 10, 15000, 1, 4000),
-         ("warm", "WARMTH", 0, 1, 0, 0.2), ("spread", "SPREAD", 0, 1, 0, 0.6)]
+         ("warm", "WARMTH", 0, 1, 0, 0.2), ("spread", "WIDTH", 0, 1, 0, 0.6)]
 FX_P = [("chorus", "CHORUS", 0, 1, 0, 0.4), ("dsync", "ECHO-16THS", 1, 16, 0, 6),
         ("dfb", "ECHO-FB", 0, 0.9, 0, 0.4), ("dmix", "ECHO-MIX", 0, 1, 0, 0.15),
         ("rsize", "REVERB-SIZE", 0, 1, 0, 0.85), ("rmix", "REVERB-MIX", 0, 1, 0, 0.4),
@@ -538,7 +538,7 @@ def gen_voice():
     p.c(w1, dr, 0, 1)
     p.c(w1, th, 0, 1)
     # 2: pan
-    pan = o("expr 0.5+(random(0, 1001)/1000-0.5)*fbspread")
+    pan = o("expr 0.5")  # voices dead centre; width comes from the balanced M/S stage in fb-fx
     p.c(ton, pan, 2)
     tp = o("t f f")
     p.c(pan, tp)
@@ -937,7 +937,8 @@ def gen_fx():
                         ("dtime", "min(max(fbdsync*15000/max(fbbpm, 20), 10), 2900)", 120),
                         ("dfb", "fbdfb", 50), ("dmix", "fbdmix", 50),
                         ("rfb", "0.7+fbrsize*0.27", 80),
-                        ("rmix", "min(fbrmix+fbmspace, 1)", 50)):
+                        ("rmix", "min(fbrmix+fbmspace, 1)", 50),
+                        ("width", "0.5+fbspread*1.5", 60)):
         e = o(f"expr {ex}")
         p.c(met, e)
         ch = o("change")
@@ -951,11 +952,11 @@ def gen_fx():
     # chorus
     p.at(300, 60)
     outs = []
-    for side, src, rate in (("l", il, 0.31), ("r", ir, 0.37)):
+    lf = o("osc~ 0.31")  # one LFO, opposite phase on L and R = balanced
+    for side, src, sign in (("l", il, "+"), ("r", ir, "-")):
         dw = o(f"delwrite~ $0-ch{side} 60")
         p.c(src, dw)
-        lf = o(f"osc~ {rate}")
-        dt = o("expr~ 14+6*$v1")
+        dt = o(f"expr~ 14{sign}6*$v1")
         p.c(lf, dt)
         vd = o(f"vd~ $0-ch{side}")
         p.c(dt, vd)
@@ -973,14 +974,16 @@ def gen_fx():
     mono = o("*~ 0.5")
     p.c(cl, mono)
     p.c(cr, mono)
-    dwl = o("delwrite~ $0-dl 3000")
-    dwr = o("delwrite~ $0-dr 3000")
+    # balanced echo: both sides get the same input and the same time = equal L/R
+    dwl = o("delwrite~ $0-dl 4500")
+    dwr = o("delwrite~ $0-dr 4500")
     p.c(mono, dwl)
+    p.c(mono, dwr)
     vdl = o("vd~ $0-dl")
     vdr = o("vd~ $0-dr")
     p.c(lines["dtime"], vdl)
     p.c(lines["dtime"], vdr)
-    for src, dst in ((vdl, dwr), (vdr, dwl)):
+    for src, dst in ((vdl, dwl), (vdr, dwr)):
         lp = o("lop~ 2800")
         p.c(src, lp)
         hp = o("hip~ 150")
@@ -1001,6 +1004,25 @@ def gen_fx():
     p.c(el, sl, 0, 1)
     p.c(cr, sr)
     p.c(er, sr, 0, 1)
+    # WIDTH: mid/side, symmetric so it can never lean to one side
+    mid = o("*~ 0.5")
+    p.c(sl, mid)
+    p.c(sr, mid)
+    side = o("-~")
+    p.c(sl, side)
+    p.c(sr, side, 0, 1)
+    sideh = o("*~ 0.5")
+    p.c(side, sideh)
+    sidew = o("*~")
+    p.c(sideh, sidew)
+    p.c(lines["width"], sidew, 0, 1)
+    nl = o("+~")
+    p.c(mid, nl)
+    p.c(sidew, nl, 0, 1)
+    nr = o("-~")
+    p.c(mid, nr)
+    p.c(sidew, nr, 0, 1)
+    sl, sr = nl, nr
 
     # reverb
     p.at(820, 60)
@@ -1024,15 +1046,16 @@ def gen_fx():
     rin = o("*~ 0.2")
     p.c(sl, rin)
     p.c(sr, rin)
+    rhp = o("hip~ 140")  # keep the lows out of the reverb (less mud, equal L/R)
+    p.c(rin, rhp)
     pre = o("delwrite~ $0-pre 100")
-    p.c(rin, pre)
+    p.c(rhp, pre)
     prd = o("delread~ $0-pre 30")
     d1 = allpass(prd, "d1", 4.7)
     d2 = allpass(d1, "d2", 11.3)
     wets = []
-    for side, times, ap in (("l", (50.3, 56.9, 61.7, 68.2, 74.9), 5.3),
-                            ("r", (52.9, 58.3, 64.1, 70.6, 77.3), 6.1)):
-        acc = o("*~ 0.2")
+    for side, times, ap in (("l", (50.3, 56.9, 61.7, 68.2, 74.9, 81.1, 86.3), 5.3),):
+        acc = o("*~ 0.15")
         for k, ms in enumerate(times):
             sm = o("+~")
             p.c(d2, sm)
@@ -1051,6 +1074,10 @@ def gen_fx():
         p.c(a, w)
         p.c(lines["rmix"], w, 0, 1)
         wets.append(w)
+    # right = the same reverb 13 ms later: wide, but exactly equal energy L/R
+    rdw = o("delwrite~ $0-rdel 50")
+    p.c(wets[0], rdw)
+    wets.append(o("delread~ $0-rdel 13"))
     ol = o("outlet~", 900, 870)
     orr = o("outlet~", 1000, 870)
     p.c(sl, ol)

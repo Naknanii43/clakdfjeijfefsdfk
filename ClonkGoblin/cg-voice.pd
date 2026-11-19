@@ -71,7 +71,7 @@
 #X obj 1100 870 outlet~;
 #X obj 20 120 t b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b f;
 #X obj 20 144 v cgxnote;
-#X obj 20 168 expr 0.5+(random(0 \, 1001)/1000-0.5)*min(cgwob+cgmwob \, 1);
+#X obj 20 168 expr 0.5;
 #X obj 20 192 v cgxpan;
 #X obj 20 216 expr cgxnote+cgtune+cgmtune+(random(0 \, 2001)/1000-1)*min(cgwob+cgmwob \, 1)*1.5;
 #X obj 20 240 expr cgpdrop*(0.6+0.4*cgxvel/127);

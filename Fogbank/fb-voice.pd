@@ -54,7 +54,7 @@
 #X obj 20 382 v fbsr;
 #X obj 20 406 expr 0.85*max(fbsr \, 22050)*max(fbres \, 0.5)/6.2832 \; 69+12*log(0.85*max(fbsr \, 22050)*max(fbres \, 0.5)/6.2832/440)/log(2);
 #X obj 20 430 expr 1+fbwarm*fbwarm*14;
-#X obj 20 454 expr 0.5+(random(0 \, 1001)/1000-0.5)*fbspread;
+#X obj 20 454 expr 0.5;
 #X obj 20 478 t f f;
 #X obj 20 502 expr sqrt(1-\$f1)*fblvl;
 #X obj 20 526 expr sqrt(\$f1)*fblvl;

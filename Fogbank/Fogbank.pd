@@ -31,7 +31,7 @@
 #X obj 526 144 hsl 120 13 0 1 0 0 fb-sus fb-sus-set SUSTAIN 125 6 0 9 #0f1730 #cdb4db #e9ecf5 0 1;
 #X obj 526 168 hsl 120 13 10 15000 1 0 fb-rel fb-rel-set RELEASE 125 6 0 9 #0f1730 #cdb4db #e9ecf5 0 1;
 #X obj 526 192 hsl 120 13 0 1 0 0 fb-warm fb-warm-set WARMTH 125 6 0 9 #0f1730 #cdb4db #e9ecf5 0 1;
-#X obj 526 216 hsl 120 13 0 1 0 0 fb-spread fb-spread-set SPREAD 125 6 0 9 #0f1730 #cdb4db #e9ecf5 0 1;
+#X obj 526 216 hsl 120 13 0 1 0 0 fb-spread fb-spread-set WIDTH 125 6 0 9 #0f1730 #cdb4db #e9ecf5 0 1;
 #X obj 4 254 cnv 1 254 212 empty empty SPACE 6 9 0 10 #1c2541 #b9fbc0 0;
 #X obj 10 272 hsl 120 13 0 1 0 0 fb-chorus fb-chorus-set CHORUS 125 6 0 9 #0f1730 #b9fbc0 #e9ecf5 0 1;
 #X obj 10 299 hsl 120 13 1 16 0 0 fb-dsync fb-dsync-set ECHO-16THS 125 6 0 9 #0f1730 #b9fbc0 #e9ecf5 0 1;
