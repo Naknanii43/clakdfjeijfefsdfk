@@ -27,7 +27,7 @@ jobs:
       - name: Build Camomile instrument (VST3 + AU, Universal)
         working-directory: camomile-src
         run: |
-          cmake -B build -G Xcode -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+          cmake -B build -G Xcode -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           cmake --build build --config Release --target Camomile_VST3 Camomile_AU -- -quiet
           ls -la Plugins
 
