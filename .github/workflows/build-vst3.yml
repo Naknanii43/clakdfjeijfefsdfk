@@ -1,13 +1,17 @@
-name: Build Clonk Goblin VST3 (macOS)
+name: Build VST3 plugins (macOS)
 
 # Builds Camomile from source on an Apple Silicon runner (Universal: arm64 +
-# x86_64), wraps the ClonkGoblin patch into it, ad-hoc signs the bundles and
-# uploads a zip you can download from the run's "Artifacts" section.
+# x86_64), wraps each Pd plugin folder into it, ad-hoc signs the bundles and
+# publishes them as the "latest" GitHub release (+ the 'builds' branch).
+#
+# Each plugin gets its own compiled plugin code so the DAW sees them as
+# different plugins (Camomile's VST3 ID is fixed at compile time).
 on:
   workflow_dispatch:
   push:
     paths:
       - "ClonkGoblin/**"
+      - "Fogbank/**"
       - ".github/workflows/build-vst3.yml"
 
 permissions:
@@ -16,7 +20,7 @@ permissions:
 jobs:
   mac:
     runs-on: macos-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -37,65 +41,64 @@ jobs:
             'static inline CGImageRef juce_stub_CGWindowListCreateImage (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) { return nullptr; }' \
             '#define CGWindowListCreateImage juce_stub_CGWindowListCreateImage' \
             | cat - "$f" > "$f.new" && mv "$f.new" "$f"
-          grep -rln "CGWindowListCreateImage" Juce/modules || true
 
-      - name: Build Camomile instrument (VST3, Universal)
-        working-directory: camomile-src
+      - name: Build + wrap + sign each plugin
         run: |
-          cmake -B build -G Xcode -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-          cmake --build build --config Release --target Camomile_VST3 -- -quiet
-          ls -la Plugins
-
-      - name: Wrap Clonk Goblin into the Camomile bundles
-        run: |
+          set -e
           mkdir -p out
           chmod +x camomile-src/Plugins/camomile
-          (cd camomile-src/Plugins && ./camomile -f "$GITHUB_WORKSPACE/ClonkGoblin" -o "$GITHUB_WORKSPACE/out") || true
-          rm -rf out/*.component out/*.lv2
-          ls -la out
-          test -d out/ClonkGoblin.vst3
-
-      - name: Ad-hoc sign + check architectures
-        run: |
-          for b in out/ClonkGoblin.vst3 out/ClonkGoblin.component; do
-            [ -d "$b" ] || continue
-            xattr -cr "$b"
-            codesign --force --deep --sign - "$b"
-            codesign --verify --deep --strict --verbose=2 "$b"
-            lipo -archs "$b"/Contents/MacOS/*
-          done
-
-      - name: Package
-        run: |
-          cd out
-          cp "$GITHUB_WORKSPACE/README.md" ClonkGoblin-README.md 2>/dev/null || true
-          cat > INSTALL.txt <<'EOF'
-          1. Copy ClonkGoblin.vst3      -> ~/Library/Audio/Plug-Ins/VST3/
+          # name  plugin-code(4 chars, compiled in)  bundle-id
+          while read -r NAME CODE BID; do
+            echo "=================== $NAME ($CODE)"
+            ( cd camomile-src
+              sed -i '' -E "/juce_add_plugin\(Camomile$/,/PRODUCT_NAME/ s/PLUGIN_CODE[[:space:]]+[A-Za-z0-9]{4}/PLUGIN_CODE                 $CODE/" CMakeLists.txt
+              grep -n "PLUGIN_CODE" CMakeLists.txt | head -2
+              rm -rf Plugins/Camomile.vst3
+              cmake -B build -G Xcode -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null
+              cmake --build build --config Release --target Camomile_VST3 -- -quiet
+              test -d Plugins/Camomile.vst3 )
+            (cd camomile-src/Plugins && ./camomile -vst3 -f "$GITHUB_WORKSPACE/$NAME" -o "$GITHUB_WORKSPACE/out") || true
+            rm -rf out/*.component out/*.lv2
+            B="out/$NAME.vst3"
+            test -d "$B"
+            plutil -replace CFBundleIdentifier -string "$BID" "$B/Contents/Info.plist"
+            xattr -cr "$B"
+            codesign --force --deep --sign - "$B"
+            codesign --verify --deep --strict --verbose=2 "$B"
+            lipo -archs "$B"/Contents/MacOS/*
+            mkdir -p "pkg/$NAME"
+            cp -R "$B" "pkg/$NAME/"
+            cat > "pkg/$NAME/INSTALL.txt" <<EOF
+          1. Copy $NAME.vst3 -> ~/Library/Audio/Plug-Ins/VST3/
           2. In Terminal run (removes the "downloaded from the internet" flag):
-             xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/ClonkGoblin.vst3
-          3. Rescan plugins in your DAW and add "ClonkGoblin" as an instrument.
+             xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/$NAME.vst3
+          3. Rescan plugins in your DAW and add "$NAME" as an instrument.
           EOF
-          cd ..
-          ditto -c -k --sequesterRsrc out ClonkGoblin-macOS-Universal.zip
+            ditto -c -k --sequesterRsrc "pkg/$NAME" "$NAME-macOS-Universal.zip"
+          done <<'LIST'
+          ClonkGoblin Kpq8 com.naknan.clonkgoblin
+          Fogbank FgBk com.naknan.fogbank
+          LIST
+          ls -la *.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ClonkGoblin-macOS-Universal
-          path: ClonkGoblin-macOS-Universal.zip
+          name: plugins-macOS-Universal
+          path: "*-macOS-Universal.zip"
 
       - name: Publish as GitHub Release (latest)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest ClonkGoblin-macOS-Universal.zip \
-            --title "Clonk Goblin VST3 (macOS Universal)" \
-            --notes "Built from ${GITHUB_SHA::7}. Unzip, copy ClonkGoblin.vst3 to ~/Library/Audio/Plug-Ins/VST3/, then run: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/ClonkGoblin.vst3"
+          gh release create latest *-macOS-Universal.zip \
+            --title "Clonk Goblin + Fogbank VST3 (macOS Universal)" \
+            --notes "Built from ${GITHUB_SHA::7}. Unzip, copy the .vst3 to ~/Library/Audio/Plug-Ins/VST3/, then run: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/<Name>.vst3"
 
-      - name: Store build on the 'builds' branch
+      - name: Store builds on the 'builds' branch
         run: |
-          mkdir -p /tmp/b && cp ClonkGoblin-macOS-Universal.zip /tmp/b/
+          mkdir -p /tmp/b && cp *-macOS-Universal.zip /tmp/b/
           cd /tmp/b && git init -q -b builds
-          git -c user.name=ci -c user.email=ci@users.noreply.github.com add . 
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add .
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "build ${GITHUB_SHA::7}"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" builds

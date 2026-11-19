@@ -1,0 +1,18 @@
+type instrument;
+code FgBk;
+midiin true;
+midiout false;
+playhead true;
+bus 0 2;
+taillength 15;
+compatibility v1.0.7;
+param -name Bank -min 0 -max 37 -default 0 -nsteps 38;
+param -name Bright -label st -min -36 -max 36 -default 0;
+param -name Color -min -1 -max 1 -default 0;
+param -name Motion -min -1 -max 1 -default 0;
+param -name Attack -min -2 -max 2 -default 0;
+param -name Release -min -2 -max 2 -default 0;
+param -name Space -min 0 -max 1 -default 0;
+param -name Arp -list Off/On -default 0;
+param -name Hold -list Off/On -default 0;
+param -name Volume -min 0 -max 1 -default 0.8;
