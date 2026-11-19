@@ -10,6 +10,9 @@ on:
       - "ClonkGoblin/**"
       - ".github/workflows/build-vst3.yml"
 
+permissions:
+  contents: write
+
 jobs:
   mac:
     runs-on: macos-latest
@@ -79,3 +82,20 @@ jobs:
         with:
           name: ClonkGoblin-macOS-Universal
           path: ClonkGoblin-macOS-Universal.zip
+
+      - name: Publish as GitHub Release (latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest ClonkGoblin-macOS-Universal.zip \
+            --title "Clonk Goblin VST3 (macOS Universal)" \
+            --notes "Built from ${GITHUB_SHA::7}. Unzip, copy ClonkGoblin.vst3 to ~/Library/Audio/Plug-Ins/VST3/, then run: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/ClonkGoblin.vst3"
+
+      - name: Store build on the 'builds' branch
+        run: |
+          mkdir -p /tmp/b && cp ClonkGoblin-macOS-Universal.zip /tmp/b/
+          cd /tmp/b && git init -q -b builds
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add . 
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "build ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" builds
