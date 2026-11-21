@@ -345,6 +345,9 @@ def gen_voice():
     p.c(D, olan, 0, 1)
     p.c(Fc, olan, 0, 2)
     # TONE: warm <-> bright (adds or removes the upper range)
+    dh = o("lop~ 7500")  # gentle de-hiss: the voice samples carry fine air above ~7 kHz
+    p.c(olan, dh)
+    olan = dh
     th = o("hip~ 1800")
     p.c(olan, th)
     tg = o("*~ 0")
