@@ -28,8 +28,8 @@ TEXT_MODES = ["VOWELS", "LYRICS", "RANDOM_WORDS"]
 
 # name, label, lo, hi, log, default
 VOICE_P = [("speaker", "VOICE_(LOW->HIGH)", 0, 7, 0, 3), ("body", "BODY", 0.8, 1.25, 0, 1.0),
-           ("tune", "OCTAVE/TUNE", -24, 24, 0, 0), ("vowel", "VOWEL_ah-oh-ooh-ee-mm", 0, 4, 0, 0),
-           ("line", "LYRIC_LINE", 0, 9, 0, 0), ("speed", "WORD_SPEED", 0.5, 2, 0, 1)]
+           ("tune", "OCTAVE/TUNE", -24, 24, 0, 0), ("vowel", "VOWEL/SYLLABLE", 0, len(VOWELS) - 1, 0, 0),
+           ("line", "LYRIC_LINE", 0, len(LYRICS) - 1, 0, 0), ("speed", "WORD_SPEED", 0.5, 2, 0, 1)]
 EXPR_P = [("vibd", "VIBRATO", 0, 1, 0, 0.5), ("vibr", "VIB-SPEED", 3, 8, 0, 5.5),
           ("vibdel", "VIB-DELAY", 0, 1500, 0, 350), ("jitter", "ROUGHNESS", 0, 1, 0, 0.2),
           ("scoop", "SCOOP", 0, 4, 0, 0.8), ("glide", "GLIDE", 0, 500, 0, 0),
@@ -43,7 +43,7 @@ FX_P = [("chorus", "CHORUS", 0, 1, 0, 0.15), ("dsync", "ECHO-16THS", 1, 16, 0, 6
 GEN_P = [("dens", "DENSITY", 0, 1, 0, 0.5), ("harm", "HARMONY", 0, 1, 0, 0.25),
          ("lyrics", "NEW_LINES", 0, 1, 0, 0.5)]
 MACROS = [("mbody", "BODY+", -0.2, 0.2, 0), ("mair", "AIR+", -1, 1, 0),
-          ("mvowel", "VOWEL+", -4, 4, 0), ("mcast", "CAST+", 0, 1, 0),
+          ("mvowel", "VOWEL+", -(len(VOWELS) - 1), len(VOWELS) - 1, 0), ("mcast", "CAST+", 0, 1, 0),
           ("mspace", "SPACE+", 0, 1, 0)]
 SOUND_KEYS = ([p[0] for p in VOICE_P] + ["text"] + [p[0] for p in EXPR_P + AMP_P + FX_P if p[0] != "vol"])
 USER = ["arp", "sing", "hold", "arpm", "arate", "aoct", "agate", "sync", "bpm", "vol",
@@ -63,7 +63,7 @@ HOSTP = [
     ("bank", None),
     ("mbody", "param -name Body -min -0.2 -max 0.2 -default 0;"),
     ("mair", "param -name Air -min -1 -max 1 -default 0;"),
-    ("mvowel", "param -name Vowel -min -4 -max 4 -default 0;"),
+    ("mvowel", f"param -name Vowel -min -{len(VOWELS)-1} -max {len(VOWELS)-1} -default 0;"),
     ("mcast", "param -name Cast -min 0 -max 1 -default 0;"),
     ("mspace", "param -name Space -min 0 -max 1 -default 0;"),
     ("text", "param -name Text -list Vowels/Lyrics/Random -default 0;"),
@@ -98,6 +98,10 @@ BANKS = [
     B("Street_Crowd", "a_mixed_crowd_saying_random_words", cast=1.0, text=2, jitter=0.5, scoop=1.5),
     B("Ooh_Pad", "a_soft_wall_of_ooh", cast=0.7, text=0, vowel=2, att=500, rel=2200, chorus=0.4, rmix=0.5),
     B("Yodel_Goat", "a_very_enthusiastic_mountain_goat", speaker=5, tune=12, text=0, vowel=3, glide=60, scoop=3, vibd=0.7, vibr=7.0),
+    B("La_La_Choir", "a_mixed_choir_singing_la", cast=1.0, text=0, vowel=9, att=15, rel=500, chorus=0.3, rmix=0.45),
+    B("Hey_Crowd", "a_crowd_shouting_hey_on_the_beat", cast=1.0, text=0, vowel=13, att=3, rel=250, vibd=0.1, scoop=1.2, rmix=0.25),
+    B("Stars_Tonight", "the_stars_are_out_tonight_(in-between_voice)", speaker=4, text=1, line=10, vibd=0.55, rmix=0.45),
+    B("Sweet_Dreams", "a_low_lullaby:_sweet_dreams_my_love", speaker=2, tune=-12, text=1, line=29, att=40, rel=1500, vibd=0.4, rmix=0.5),
     B("Airport_Angel", "please_proceed_to_gate_heaven", speaker=7, text=0, vowel=1, att=400, rel=2600, chorus=0.5, rsize=0.96, rmix=0.6),
 ]
 HOSTP[0] = ("bank", f"param -name Bank -min 0 -max {len(BANKS)-1} -default 0 -nsteps {len(BANKS)};")
@@ -180,23 +184,28 @@ def gen_params():
 
     # ---- lyric position / line
     p.at(950, 40)
+    # use the incoming value itself: reading [v vxline] here could race the store
     rl = o("r vx-line")
-    rr = o("r vx-lyrreset")
-    tl = o("t b b")
+    tl = o("t b f")
     p.c(rl, tl)
-    p.c(rr, tl)
-    p.c(tl, p.msg("0"), 0)
-    p.c(p.n - 1, o("v vxlyrpos"))
-    cl = o("expr min(max(int(vxline+0.5), 0), 9)")
+    cl = o(f"expr min(max(int($f1+0.5), 0), {len(LYRICS)-1})")
     p.c(tl, cl, 1)
     p.c(cl, o("v vxcurline"))
+    z0 = p.msg("0")
+    p.c(tl, z0, 0)
+    p.c(z0, o("v vxlyrpos"))
+    rr = o("r vx-lyrreset")
+    rre = o(f"expr min(max(int(vxline+0.5), 0), {len(LYRICS)-1})")
+    p.c(rr, rre)
+    p.c(rre, o("v vxcurline"))
+    p.c(rr, z0)
     # SING: at the start of each phrase maybe jump to a new line
     rph = o("r vx-phrase")
     tp = o("t b b")
     p.c(rph, tp)
     p.c(tp, p.msg("0"), 0)
     p.c(p.n - 1, o("v vxlyrpos"))
-    nl = o("expr if(random(0, 100)<vxlyrics*100, random(0, 10), vxcurline)")
+    nl = o(f"expr if(random(0, 100)<vxlyrics*100, random(0, {len(LYRICS)}), vxcurline)")
     p.c(tp, nl, 1)
     p.c(nl, o("v vxcurline"))
     # ---- word chooser: one new word per chord (notes < 25 ms apart share a word)
@@ -206,9 +215,12 @@ def gen_params():
     tim = o("timer")
     p.c(tt, tim, 1, 1)  # measure time since the last note first
     p.c(tt, tim, 0, 0)  # then reset
-    mo = o("moses 25")
-    p.c(tim, mo)
-    W = (f"if(vxtext<0.5, min(max(int(vxvowel+vxmvowel+0.5), 0), 4), "
+    # a new word when >= 25 ms since the last note (or on the very first note)
+    mo0 = o("expr $f1>=25 || vxwdone==0")
+    p.c(tim, mo0)
+    mo = o("sel 0 1")
+    p.c(mo0, mo)
+    W = (f"if(vxtext<0.5, min(max(int(vxvowel+vxmvowel+0.5), 0), {len(VOWELS)-1}), "
          f"if(vxtext<1.5, vxlinew[vxcurline*8+vxlyrpos%max(vxlinelen[vxcurline], 1)], random({len(VOWELS)}, {NW})))")
     adv = o("t b b")
     p.c(mo, adv, 1)
@@ -218,6 +230,8 @@ def gen_params():
     inc = o("expr vxlyrpos+1")
     p.c(adv, inc, 0)
     p.c(inc, o("v vxlyrpos"))
+    p.c(adv, p.msg("1"), 0)
+    p.c(p.n - 1, o("v vxwdone"))
     p.save(os.path.join(OUT, "vx-params.pd"))
 
 
@@ -1382,8 +1396,15 @@ def gen_main():
     p.c(spi, sps)
     for i, nm in enumerate(VOICE_NAMES):
         p.c(sps, p.msg(f"; vx-voicename label v{i+1}:{nm}", X + 400 + i * 160, 795), i)
+    rvo = o("r vx-vowel", X + 400, 960)
+    voi = o(f"expr min(max(int($f1+0.5), 0), {len(VOWELS)-1})", X + 400, 985)
+    p.c(rvo, voi)
+    vos = o("sel " + " ".join(str(i) for i in range(len(VOWELS))), X + 400, 1010)
+    p.c(voi, vos)
+    for i, (key, _) in enumerate(VOWELS):
+        p.c(vos, p.msg(f"; vx-vowel-set label VOWEL:_{key}", X + 400 + i * 130, 1035), i)
     rli = o("r vx-line", X + 400, 830)
-    lii = o("expr min(max(int($f1+0.5), 0), 9)", X + 400, 855)
+    lii = o(f"expr min(max(int($f1+0.5), 0), {len(LYRICS)-1})", X + 400, 855)
     p.c(rli, lii)
     lis = o("sel " + " ".join(str(i) for i in range(len(LYRICS))), X + 400, 880)
     p.c(lii, lis)
