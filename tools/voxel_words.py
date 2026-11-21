@@ -61,3 +61,20 @@ def tts_text(word):
 WORDS = all_words()
 NSPEAKERS = 12  # 6 pitch ranges x (warm, bright)
 SRC_SR = 22050
+
+
+# ---- SPEAK mode: natural speech (no musical pitch), one clip per key
+EXPRESSIONS = ["Hey!", "Oh!", "Wow.", "Hmm.", "Yeah!", "Okay.", "Hello.", "Ha ha ha!", "Oh no.",
+               "Uh huh.", "Whoa!", "Yes!", "No.", "What?", "Come on!", "Listen.", "Shh.", "Ahh.",
+               "Thank you.", "Goodbye."]
+
+
+def spoken_line(line):
+    words = ["I" if w == "i" else w for w in line.split()]
+    s = " ".join(words)
+    return s[0].upper() + s[1:] + "."
+
+
+SPEAK_CLIPS = [spoken_line(l) for l in LYRICS] + EXPRESSIONS  # lines first, then expressions
+NLINES = len(LYRICS)
+NEXPR = len(EXPRESSIONS)

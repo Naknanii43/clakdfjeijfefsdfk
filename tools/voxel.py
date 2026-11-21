@@ -15,7 +15,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from pdgen import Patch  # noqa: E402
-from voxel_words import LYRICS, NSPEAKERS, SRC_SR, VOWELS, WORDS  # noqa: E402
+from voxel_words import (EXPRESSIONS, LYRICS, NEXPR, NLINES, NSPEAKERS, SPEAK_CLIPS, SRC_SR,  # noqa: E402
+                         VOWELS, WORDS)
+NCLIPS = len(SPEAK_CLIPS)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OUT = os.path.join(ROOT, "Voxel")
@@ -26,6 +28,7 @@ NG = 4  # PSOLA grain players per voice
 VOICE_NAMES = [f"{r}-{t}" for r in ("deep", "low", "mid-low", "mid-high", "high", "very-high")
                for t in ("warm", "bright")]  # mid-low / mid-high = in-between voices
 TEXT_MODES = ["VOWELS", "LYRICS", "RANDOM_WORDS"]
+SPEAK_MODES = ["OFF_(sing)", "SPEAK_LINES", "EXPRESSIONS"]
 
 # name, label, lo, hi, log, default
 VOICE_P = [("speaker", "VOICE_(LOW->HIGH)", 0, NSPEAKERS - 1, 0, 5), ("body", "BODY", 0.8, 1.25, 0, 1.0),
@@ -36,7 +39,8 @@ EXPR_P = [("vibd", "VIBRATO", 0, 1, 0, 0.5), ("vibr", "VIB-SPEED", 3, 8, 0, 5.5)
           ("scoop", "SCOOP", 0, 4, 0, 0.8), ("glide", "GLIDE", 0, 500, 0, 0),
           ("air", "AIR", 0, 1, 0, 0.0), ("tone", "TONE_warm-bright", 0, 1, 0, 0.5)]
 AMP_P = [("cast", "CAST-MIX", 0, 1, 0, 0), ("att", "ATTACK", 1, 3000, 1, 12),
-         ("rel", "RELEASE", 20, 6000, 1, 450), ("spread", "WIDTH", 0, 1, 0, 0.5)]
+         ("rel", "RELEASE", 20, 6000, 1, 450), ("spread", "WIDTH", 0, 1, 0, 0.5),
+         ("spitch", "SPEAK-PITCH", -12, 12, 0, 0)]
 FX_P = [("chorus", "CHORUS", 0, 1, 0, 0.15), ("dsync", "ECHO-16THS", 1, 16, 0, 6),
         ("dfb", "ECHO-FB", 0, 0.9, 0, 0.3), ("dmix", "ECHO-MIX", 0, 1, 0, 0.08),
         ("rsize", "REVERB-SIZE", 0, 1, 0, 0.8), ("rmix", "REVERB-MIX", 0, 1, 0, 0.3),
@@ -46,12 +50,13 @@ GEN_P = [("dens", "DENSITY", 0, 1, 0, 0.5), ("harm", "HARMONY", 0, 1, 0, 0.25),
 MACROS = [("mbody", "BODY+", -0.2, 0.2, 0), ("mair", "AIR+", -1, 1, 0),
           ("mvowel", "VOWEL+", -(len(VOWELS) - 1), len(VOWELS) - 1, 0), ("mcast", "CAST+", 0, 1, 0),
           ("mspace", "SPACE+", 0, 1, 0)]
-SOUND_KEYS = ([p[0] for p in VOICE_P] + ["text"] + [p[0] for p in EXPR_P + AMP_P + FX_P if p[0] != "vol"])
+SOUND_KEYS = ([p[0] for p in VOICE_P] + ["text", "speak"] + [p[0] for p in EXPR_P + AMP_P + FX_P if p[0] != "vol"])
 USER = ["arp", "sing", "hold", "arpm", "arate", "aoct", "agate", "sync", "bpm", "vol",
         "dens", "harm", "lyrics", "scale", "root"]
 ALLVALS = SOUND_KEYS + [m[0] for m in MACROS] + USER
 DEFAULTS = {p[0]: p[5] for p in VOICE_P + EXPR_P + AMP_P + FX_P}
 DEFAULTS["text"] = 0
+DEFAULTS["speak"] = 0
 
 ARP_MODES = ["UP", "DOWN", "UP+DOWN", "RANDOM", "DRUNK"]
 ARP_RATES = ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]
@@ -68,6 +73,7 @@ HOSTP = [
     ("mcast", "param -name Cast -min 0 -max 1 -default 0;"),
     ("mspace", "param -name Space -min 0 -max 1 -default 0;"),
     ("text", "param -name Text -list Vowels/Lyrics/Random -default 0;"),
+    ("speak", "param -name Speak -list Off/Lines/Expressions -default 0;"),
     ("arp", "param -name Arp -list Off/On -default 0;"),
     ("sing", "param -name Sing -list Off/On -default 0;"),
     ("hold", "param -name Hold -list Off/On -default 0;"),
@@ -118,6 +124,11 @@ for _nm, _desc, _d in BANKS:
         _d["speaker"] = _VOICE_FOR[_nm]
 BANKS += [
     B("Warm_Velvet_Voice", "a_dark_warm_mid-low_voice_up_close", speaker=4, tone=0.15, text=1, line=12, vibd=0.45, rel=900, rmix=0.35),
+    B("Storyteller", "SPEAK:_a_warm_low_voice_telling_the_lyrics_(keys_pick_the_line)", speaker=2, speak=1, line=0, att=2, rel=300, rmix=0.25),
+    B("Talking_Crowd", "SPEAK:_everyone_talking_(each_key_a_different_line)", speaker=5, cast=1.0, speak=1, att=2, rel=300, rmix=0.3, chorus=0.1),
+    B("Reactions", "SPEAK:_hey_oh_wow_haha_..._(one_per_key)", speaker=7, speak=2, att=2, rel=300, rmix=0.2),
+    B("Chipmunk_News", "SPEAK:_sped-up_tape_voice", speaker=9, speak=1, spitch=7, att=2, rel=300, rmix=0.15),
+    B("Slow_Motion_Voice", "SPEAK:_slowed-down_tape_voice", speaker=4, speak=2, spitch=-7, att=2, rel=300, rmix=0.45, rsize=0.9),
     B("Bright_Pop_Voice", "a_bright_forward_mid-high_voice", speaker=7, tone=0.85, text=1, line=21, vibd=0.4, scoop=1.2, rmix=0.25, dmix=0.15),
 ]
 HOSTP[0] = ("bank", f"param -name Bank -min 0 -max {len(BANKS)-1} -default 0 -nsteps {len(BANKS)};")
@@ -173,6 +184,8 @@ def gen_params():
         o(f"array define {name} {len(vals)}")
     for k in range(NSPEAKERS):
         o(f"array define vxs{k} 10")
+        o(f"array define vxp{k} 10")
+    o("text define vxspk")
     o("text define vxwords")
     o("text define vxvoices")
     lb = o("loadbang")
@@ -186,6 +199,13 @@ def gen_params():
         m = p.msg(f"read -resize voices/voice{k}.wav vxs{k}")
         p.c(t, m, 1)
         p.c(m, sfr)
+    for k in range(NSPEAKERS):
+        m = p.msg(f"read -resize voices/speak{k}.wav vxp{k}")
+        p.c(t, m, 1)
+        p.c(m, sfr)
+    rs_ = p.msg("read voices/speak.txt")
+    p.c(t, rs_, 1)
+    p.c(rs_, next(i for i, l in enumerate(p.lines) if "text define vxspk" in l))
     rw = p.msg("read voices/words.txt")
     p.c(t, rw, 1)
     # connect the text reads to their [text define]s
@@ -226,6 +246,11 @@ def gen_params():
     p.c(nl, o("v vxcurline"))
     # ---- word chooser: one new word per chord (notes < 25 ms apart share a word)
     rwt = o("r vx-wordtick")
+    # SPEAK: the key picks the clip (C4 = the current lyric line / first expression)
+    clip = o(f"expr if(vxspeak<1.5, ((int(vxline+0.5)+$f1-60)%{NLINES}+{NLINES})%{NLINES}, "
+             f"{NLINES}+(($f1-60)%{NEXPR}+{NEXPR})%{NEXPR})")
+    p.c(rwt, clip)
+    p.c(clip, o("v vxclipnow"))
     tt = o("t b b")
     p.c(rwt, tt)
     tim = o("timer")
@@ -361,9 +386,23 @@ def gen_voice():
     p.c(an, ah)
     ag = o("*~ 0")
     p.c(ah, ag)
+    # SPEAK path: plain sample playback (natural pitch), crossfaded with the sung path
+    spos = o("vline~")
+    sptab = o("tabread4~ vxp0")
+    p.c(spos, sptab)
+    sg = o("line~")
+    spg = o("*~")
+    p.c(sptab, spg)
+    p.c(sg, spg, 0, 1)
+    sgi = o("expr~ 1-$v1")
+    p.c(sg, sgi)
+    sung = o("*~")
+    p.c(tsum, sung)
+    p.c(sgi, sung, 0, 1)
     AE = o("vline~")
     amp = o("*~")
-    p.c(tsum, amp)
+    p.c(sung, amp)
+    p.c(spg, amp)
     p.c(ag, amp)
     p.c(AE, amp, 0, 1)
     out = o("*~ 1")
@@ -482,6 +521,61 @@ def gen_voice():
     lve = o("expr vxlvl*0.9")
     p.c(ton, lve, k4)
     p.c(lve, out, 0, 1)
+    # 2: SPEAK setup (clip bounds, tape speed, gate)
+    k2 = step()
+    spk_on = o("expr vxspeak>0.5")
+    p.c(ton, spk_on, k2)
+    p.c(spk_on, o("v vxxspk"))
+    gm = p.msg("$1 5")
+    p.c(spk_on, gm)
+    p.c(gm, sg)
+    mkp = o("makefilename vxp%d")
+    ex_s = o("expr vxxs")
+    p.c(ton, ex_s, k2)
+    p.c(ex_s, mkp)
+    msp = p.msg("set $1")
+    p.c(mkp, msp)
+    p.c(msp, sptab)
+    sci = o(f"expr vxxs*{NCLIPS}+vxclipnow")
+    p.c(ton, sci, k2)
+    sct = o("text get vxspk")
+    p.c(sci, sct)
+    scu = o("unpack f f")
+    p.c(sct, scu)
+    p.c(scu, o("v vxxca"), 0)
+    p.c(scu, o("v vxxce"), 1)
+    # 1: SPEAK playback + one-shot envelope (only when SPEAK is on)
+    k1 = step()
+    sgo = o("expr vxxspk")
+    p.c(ton, sgo, k1)
+    sgs = o("sel 1")
+    p.c(sgo, sgs)
+    spe = o(f"expr vxxca; vxxce; (vxxce-vxxca)/{SRC_SR/1000}/pow(2, vxspitch/12); pow(vxxvel/127, 0.7)")
+    p.c(sgs, spe)
+    sp3 = o("pack f f f")
+    for i in range(3):
+        p.c(spe, sp3, i, i)
+    p.c(sp3, p.msg("$1, $2 $3"))
+    p.c(p.n - 1, spos)
+    sae = o("pack f f")
+    p.c(spe, sae, 3, 0)
+    p.c(spe, sae, 2, 1)
+    p.conns = [c for c in p.conns if c != f"#X connect {spe} 3 {sae} 0;"]
+    p.conns = [c for c in p.conns if c != f"#X connect {spe} 2 {sae} 1;"]
+    p.c(spe, sae, 2, 1)  # duration (fires first)
+    p.c(spe, sae, 3, 0)  # level... outlet 3 fires before outlet 2, so use a trigger below
+    p.conns = [c for c in p.conns if c != f"#X connect {spe} 3 {sae} 0;"]
+    lvt = o("v vxxslv")
+    p.c(spe, lvt, 3)
+    sae_t = o("t b f")
+    p.conns = [c for c in p.conns if c != f"#X connect {spe} 2 {sae} 1;"]
+    p.c(spe, sae_t, 2)
+    p.c(sae_t, sae, 1, 1)
+    lve2 = o("expr vxxslv")
+    p.c(sae_t, lve2, 0)
+    p.c(lve2, sae, 0, 0)
+    p.c(sae, p.msg("$1 3, 0 40 $2"))
+    p.c(p.n - 1, AE)
     # 3: amp envelope
     ae = o("expr pow(vxxvel/127, 0.7); vxatt")
     p.c(ton, ae, step())
@@ -494,7 +588,11 @@ def gen_voice():
     # ---------------- note off: play the end of the word, then fade
     rl = o(f"expr vxxsb; vxxe; (vxxe-vxxsb)/{SRC_SR/1000}/max(vxspeed, 0.2); "
            f"max(vxrel, (vxxe-vxxsb)/{SRC_SR/1000}/max(vxspeed, 0.2))")
-    p.c(sel, rl, 0)
+    offq = o("expr vxxspk==0")
+    p.c(sel, offq, 0)
+    offs = o("sel 1")
+    p.c(offq, offs)
+    p.c(offs, rl, 0)
     rpk = o("pack f f f")
     p.c(rl, rpk, 0, 0)
     p.c(rl, rpk, 1, 1)
@@ -503,9 +601,9 @@ def gen_voice():
     p.c(p.n - 1, posA)
     p.c(rl, p.msg("0 $1"), 3)
     p.c(p.n - 1, AE)
-    p.c(sel, p.msg("0"), 0)
+    p.c(offs, p.msg("0"), 0)
     p.c(p.n - 1, mode)
-    p.c(sel, p.msg("stop"), 0)
+    p.c(offs, p.msg("stop"), 0)
     p.c(p.n - 1, dl)
     p.save(os.path.join(OUT, "vx-voice.pd"))
 
@@ -1274,11 +1372,11 @@ def gen_main():
     panel(262, 78, 254, 172, "EXPRESSION", P["gold"])
     sliders(268, 94, EXPR_P, P["gold"], 19)
     panel(520, 78, 256, 172, "CAST_+_ENVELOPE", P["lilac"])
-    sliders(526, 96, AMP_P, P["lilac"], 24)
-    lab(526, 196, "CAST-MIX_=_chance_each_note_is_sung", 8, P["dim"], P["panel"])
-    lab(526, 208, "by_another_of_the_8_voices_(deep->", 8, P["dim"], P["panel"])
-    lab(526, 220, "in-between->very_high)", 8, P["dim"], P["panel"])
-    lab(526, 238, "BODY_moves_the_formants:_<1_bigger_throat", 8, P["dim"], P["panel"])
+    sliders(526, 94, AMP_P, P["lilac"], 23)
+    lab(526, 222, "SPEAK", 8, P["text"], P["panel"])
+    p.hradio(560, 215, 13, 3, "vx-speak", "vx-speak-set", "empty", P["mint"], "#1e1424", P["text"])
+    lab(604, 222, "OFF_(sing)", 9, P["mint"], P["panel"], "vx-speakname")
+    lab(526, 240, "natural_speech:_keys_pick_the_phrase_(C4=LINE)", 8, P["dim"], P["panel"])
 
     panel(4, 254, 254, 222, "SPACE", P["mint"])
     sliders(10, 272, FX_P, P["mint"], 28)
@@ -1355,10 +1453,10 @@ def gen_main():
     p.c(pt, nsplit, 0)
     nrl = o("route list", X + 120, 185)
     p.c(nsplit, nrl, 1)
-    nvu = o("unpack f f", X + 120, 205)
+    nvu = o("expr if($f2>0, $f1, -1)", X + 120, 205)
     p.c(nrl, nvu, 0)
-    nvm = o("moses 1", X + 120, 230)
-    p.c(nvu, nvm, 1)
+    nvm = o("moses 0", X + 120, 230)
+    p.c(nvu, nvm)
     p.c(nvm, o("s vx-wordtick", X + 120, 255), 1)
     poly = o(f"poly {NVOICES} 1", X, 230)
     p.c(nsplit, poly, 0)
@@ -1418,6 +1516,7 @@ def gen_main():
     namer("vx-arate", ["vx-aratename"], ARP_RATES, 420)
     namer("vx-scale", ["vx-scalename"], [s[0] for s in SCALES], 520)
     namer("vx-text", ["vx-textname"], TEXT_MODES, 620)
+    namer("vx-speak", ["vx-speakname"], SPEAK_MODES, 1100)
     # voice name + lyric line text labels
     rsp = o("r vx-speaker", X + 400, 720)
     spi = o(f"expr min(max(int($f1+0.5), 0), {NSPEAKERS-1})", X + 400, 745)
