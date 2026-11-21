@@ -47,14 +47,15 @@ class Piper:
         return list(range(0, self.nspk, step))
 
     def say(self, text, spk, slow=1.25):
-        cfg = self.Cfg(speaker_id=spk, length_scale=slow, noise_scale=0.5, noise_w_scale=0.6)
+        cfg = self.Cfg(speaker_id=spk, length_scale=slow, noise_scale=0.33, noise_w_scale=0.6)
         x = np.concatenate([c.audio_float_array for c in self.voice.synthesize(text, syn_config=cfg)])
         return to_src_sr(x.astype(np.float64), self.sr)
 
 
 class Espeak:
-    VOICES = ["en+m3", "en+m1", "en+m2", "en+m5", "en+f5", "en+f2", "en+f1", "en+f4"]
-    PITCH = [20, 30, 40, 50, 50, 55, 65, 75]
+    VOICES = ["en+m3", "en+m7", "en+m1", "en+m6", "en+m2", "en+m4", "en+f5", "en+m5", "en+f2", "en+f3",
+              "en+f1", "en+f4"]
+    PITCH = [20, 22, 30, 32, 40, 42, 48, 52, 58, 60, 70, 75]
     sr = SRC_SR
 
     def speakers(self):
@@ -132,6 +133,9 @@ def sing_word(x, fref, min_sus_s=0.55):
     sp2 = np.vstack([sp[:c0], sp_core, sp[c1:]])
     ap2 = np.vstack([ap[:c0], ap_core, ap[c1:]])
     v2 = np.concatenate([f0[:c0] > 0, np.ones(want, bool), f0[c1:] > 0])
+    # voiced frames: make the voice more periodic (WORLD turns aperiodicity into hiss,
+    # and the stretched vowel would carry it for as long as a key is held)
+    ap2[v2] = np.clip(ap2[v2], 0, 1) ** 2.5
     f02 = np.where(v2, fref, 0.0)
     y = pw.synthesize(f02, np.ascontiguousarray(sp2), np.ascontiguousarray(ap2), SRC_SR, FP)
     hop = SRC_SR * FP / 1000
@@ -149,26 +153,49 @@ def sing_word(x, fref, min_sus_s=0.55):
 
 
 # ------------------------------------------------------------------ main
+def brightness(x):
+    """spectral balance of the voice: energy above 2 kHz relative to 300 Hz-2 kHz (dB)"""
+    S = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+    f = np.fft.rfftfreq(len(x), 1 / SRC_SR)
+    lo = S[(f > 300) & (f < 2000)].sum()
+    hi = S[(f > 2000) & (f < 8000)].sum()
+    return 10 * np.log10(hi / max(lo, 1e-12))
+
+
+def noisiness(x):
+    """how breathy/hissy the voice is: mean WORLD aperiodicity in voiced frames"""
+    f0, t = pw.harvest(x, SRC_SR, f0_floor=55, f0_ceil=500, frame_period=10)
+    ap = pw.d4c(x, f0, t, SRC_SR)
+    v = f0 > 0
+    return float(ap[v][:, : ap.shape[1] // 2].mean()) if v.any() else 1.0
+
+
 def pick_speakers(tts, log):
+    """6 pitch ranges (deep .. very high) x 2 tones (warm, bright) = 12 voices.
+    Within each range, the cleanest voices are preferred (less hiss)."""
     test = "Hello there, how are you doing today? I hope you are well."
     cands = []
     for spk in tts.speakers():
         x = tts.say(test, spk, slow=1.0)
         f0, vr = median_f0(x)
         if f0 > 0 and vr > 0.35:
-            cands.append((f0, spk))
-    cands.sort()
-    log.append(f"{len(cands)} candidate voices, pitch {cands[0][0]:.0f}-{cands[-1][0]:.0f} Hz")
+            cands.append(dict(f0=f0, spk=spk, bright=brightness(x), noise=noisiness(x)))
+    cands.sort(key=lambda c: c["f0"])
+    log.append(f"{len(cands)} candidate voices, pitch {cands[0]['f0']:.0f}-{cands[-1]['f0']:.0f} Hz")
     if len(cands) <= NSPEAKERS:
-        return cands
-    qs = np.linspace(0.02, 0.98, NSPEAKERS)
-    chosen, used = [], set()
-    for q in qs:
-        i = int(round(q * (len(cands) - 1)))
-        while i in used and i + 1 < len(cands):
-            i += 1
-        used.add(i)
-        chosen.append(cands[i])
+        return [(c["f0"], c["spk"]) for c in cands]
+    groups = np.array_split(np.arange(len(cands)), NSPEAKERS // 2)
+    chosen = []
+    for g in groups:
+        grp = [cands[i] for i in g]
+        # drop the noisiest third of the group, then take the warmest and the brightest
+        grp.sort(key=lambda c: c["noise"])
+        keep = grp[: max(2, int(round(len(grp) * 2 / 3)))]
+        keep.sort(key=lambda c: c["bright"])
+        warm, bright = keep[0], keep[-1]
+        chosen += [(warm["f0"], warm["spk"]), (bright["f0"], bright["spk"])]
+        log.append(f"  range {grp[0]['f0']:.0f}-{grp[-1]['f0']:.0f} Hz: warm spk {warm['spk']} "
+                   f"({warm['bright']:.1f} dB), bright spk {bright['spk']} ({bright['bright']:.1f} dB)")
     return chosen
 
 
@@ -199,7 +226,8 @@ def main():
         audio = np.concatenate(buf)
         sf.write(os.path.join(OUT, f"voice{k}.wav"), audio, SRC_SR, subtype="PCM_16")
         voices_lines.append(f"{fref:.3f};")
-        meta.append(dict(slot=k, speaker_id=spk, speaking_pitch=round(f0, 1), sung_pitch=round(fref, 1),
+        meta.append(dict(slot=k, tone="warm" if k % 2 == 0 else "bright", speaker_id=spk,
+                         speaking_pitch=round(f0, 1), sung_pitch=round(fref, 1),
                          seconds=round(len(audio) / SRC_SR, 1)))
         log.append(f"voice{k}: speaker {spk}, speaks at {f0:.0f} Hz, sings at {fref:.1f} Hz, {len(audio)/SRC_SR:.1f} s")
         print(log[-1], flush=True)

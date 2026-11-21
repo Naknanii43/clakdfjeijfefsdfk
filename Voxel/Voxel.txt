@@ -6,7 +6,7 @@ playhead true;
 bus 0 2;
 taillength 8;
 compatibility v1.0.7;
-param -name Bank -min 0 -max 27 -default 0 -nsteps 28;
+param -name Bank -min 0 -max 29 -default 0 -nsteps 30;
 param -name Body -min -0.2 -max 0.2 -default 0;
 param -name Air -min -1 -max 1 -default 0;
 param -name Vowel -min -14 -max 14 -default 0;

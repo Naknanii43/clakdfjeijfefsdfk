@@ -59,5 +59,5 @@ def tts_text(word):
 
 
 WORDS = all_words()
-NSPEAKERS = 8
+NSPEAKERS = 12  # 6 pitch ranges x (warm, bright)
 SRC_SR = 22050

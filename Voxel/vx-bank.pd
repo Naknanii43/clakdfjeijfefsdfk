@@ -6,7 +6,7 @@
 #X msg 20 112 read banks.txt;
 #X msg 20 136 \; vx-bank-set 0;
 #X obj 300 40 r vx-bank;
-#X obj 300 64 clip 0 27;
+#X obj 300 64 clip 0 29;
 #X obj 300 88 t f f;
 #X obj 300 112 v vxbank;
 #X obj 300 136 text get vxbanks;
@@ -18,13 +18,13 @@
 #X obj 300 280 list;
 #X msg 300 304 \; vx-\$1-set \$2;
 #X obj 600 40 r vx-prev;
-#X obj 600 64 expr (vxbank-1+28)%28;
+#X obj 600 64 expr (vxbank-1+30)%30;
 #X obj 600 88 s vx-bank-set;
 #X obj 600 112 r vx-next;
-#X obj 600 136 expr (vxbank+1)%28;
+#X obj 600 136 expr (vxbank+1)%30;
 #X obj 600 160 s vx-bank-set;
 #X obj 600 184 r vx-rand;
-#X obj 600 208 expr random(0 \, 28);
+#X obj 600 208 expr random(0 \, 30);
 #X obj 600 232 s vx-bank-set;
 #X connect 2 0 3 0;
 #X connect 3 1 4 0;

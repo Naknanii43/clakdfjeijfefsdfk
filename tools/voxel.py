@@ -23,17 +23,18 @@ NVOICES = 8
 NW = len(WORDS)
 NG = 4  # PSOLA grain players per voice
 
-VOICE_NAMES = ["deep", "low", "low-warm", "between-lo", "between-hi", "high-warm", "high", "very-high"]
+VOICE_NAMES = [f"{r}-{t}" for r in ("deep", "low", "mid-low", "mid-high", "high", "very-high")
+               for t in ("warm", "bright")]  # mid-low / mid-high = in-between voices
 TEXT_MODES = ["VOWELS", "LYRICS", "RANDOM_WORDS"]
 
 # name, label, lo, hi, log, default
-VOICE_P = [("speaker", "VOICE_(LOW->HIGH)", 0, 7, 0, 3), ("body", "BODY", 0.8, 1.25, 0, 1.0),
+VOICE_P = [("speaker", "VOICE_(LOW->HIGH)", 0, NSPEAKERS - 1, 0, 5), ("body", "BODY", 0.8, 1.25, 0, 1.0),
            ("tune", "OCTAVE/TUNE", -24, 24, 0, 0), ("vowel", "VOWEL/SYLLABLE", 0, len(VOWELS) - 1, 0, 0),
            ("line", "LYRIC_LINE", 0, len(LYRICS) - 1, 0, 0), ("speed", "WORD_SPEED", 0.5, 2, 0, 1)]
 EXPR_P = [("vibd", "VIBRATO", 0, 1, 0, 0.5), ("vibr", "VIB-SPEED", 3, 8, 0, 5.5),
           ("vibdel", "VIB-DELAY", 0, 1500, 0, 350), ("jitter", "ROUGHNESS", 0, 1, 0, 0.2),
           ("scoop", "SCOOP", 0, 4, 0, 0.8), ("glide", "GLIDE", 0, 500, 0, 0),
-          ("air", "AIR", 0, 1, 0, 0.05)]
+          ("air", "AIR", 0, 1, 0, 0.0), ("tone", "TONE_warm-bright", 0, 1, 0, 0.5)]
 AMP_P = [("cast", "CAST-MIX", 0, 1, 0, 0), ("att", "ATTACK", 1, 3000, 1, 12),
          ("rel", "RELEASE", 20, 6000, 1, 450), ("spread", "WIDTH", 0, 1, 0, 0.5)]
 FX_P = [("chorus", "CHORUS", 0, 1, 0, 0.15), ("dsync", "ECHO-16THS", 1, 16, 0, 6),
@@ -103,6 +104,21 @@ BANKS = [
     B("Stars_Tonight", "the_stars_are_out_tonight_(in-between_voice)", speaker=4, text=1, line=10, vibd=0.55, rmix=0.45),
     B("Sweet_Dreams", "a_low_lullaby:_sweet_dreams_my_love", speaker=2, tune=-12, text=1, line=29, att=40, rel=1500, vibd=0.4, rmix=0.5),
     B("Airport_Angel", "please_proceed_to_gate_heaven", speaker=7, text=0, vowel=1, att=400, rel=2600, chorus=0.5, rsize=0.96, rmix=0.6),
+]
+# banks were written for the old 8-voice set: map them onto the new 12 slots
+_VOICE_FOR = {  # bank -> voice slot (0 deep-warm ... 11 very-high-bright)
+    "Deep_Voice_Ballad": 0, "Opera_Hall": 1, "Low_Voice_Ooh": 2, "Warm_Low_Lullaby": 2,
+    "Small_Body_Big_Voice": 3, "Slow_Words": 3, "Sweet_Dreams": 2, "In_Between_Ah": 4,
+    "Random_Talker": 4, "Breathy_Secret": 6, "Stars_Tonight": 6, "In_Between_Lyrics": 7,
+    "Gospel_Scoop": 7, "High_Warm_Oh": 8, "Hummingbird": 8, "Big_Body_Little_Voice": 8,
+    "High_Voice_Light": 9, "Yodel_Goat": 9, "Airport_Angel": 10, "Very_High_Ee": 11,
+}
+for _nm, _desc, _d in BANKS:
+    if _nm in _VOICE_FOR:
+        _d["speaker"] = _VOICE_FOR[_nm]
+BANKS += [
+    B("Warm_Velvet_Voice", "a_dark_warm_mid-low_voice_up_close", speaker=4, tone=0.15, text=1, line=12, vibd=0.45, rel=900, rmix=0.35),
+    B("Bright_Pop_Voice", "a_bright_forward_mid-high_voice", speaker=7, tone=0.85, text=1, line=21, vibd=0.4, scoop=1.2, rmix=0.25, dmix=0.15),
 ]
 HOSTP[0] = ("bank", f"param -name Bank -min 0 -max {len(BANKS)-1} -default 0 -nsteps {len(BANKS)};")
 
@@ -328,6 +344,14 @@ def gen_voice():
     p.c(gsum, olan)
     p.c(D, olan, 0, 1)
     p.c(Fc, olan, 0, 2)
+    # TONE: warm <-> bright (adds or removes the upper range)
+    th = o("hip~ 1800")
+    p.c(olan, th)
+    tg = o("*~ 0")
+    p.c(th, tg)
+    tsum = o("*~ 1")
+    p.c(olan, tsum)
+    p.c(tg, tsum)
     # air (breath) layer
     an = o("noise~")
     ah = o("hip~ 2500")
@@ -336,7 +360,7 @@ def gen_voice():
     p.c(ah, ag)
     AE = o("vline~")
     amp = o("*~")
-    p.c(olan, amp)
+    p.c(tsum, amp)
     p.c(ag, amp)
     p.c(AE, amp, 0, 1)
     out = o("*~ 1")
@@ -449,6 +473,9 @@ def gen_voice():
     air = o("expr min(max(vxair+vxmair, 0), 1)*0.06")
     p.c(ton, air, k4)
     p.c(air, ag, 0, 1)
+    tne = o("expr (min(max(vxtone, 0), 1)-0.5)*1.7")
+    p.c(ton, tne, k4)
+    p.c(tne, tg, 0, 1)
     lve = o("expr vxlvl*0.9")
     p.c(ton, lve, k4)
     p.c(lve, out, 0, 1)
@@ -1242,7 +1269,7 @@ def gen_main():
     lab(150, 230, "...", 8, P["dim"], P["panel"], "vx-voicename")
     lab(10, 243, "...", 8, P["mint"], P["panel"], "vx-linetext")
     panel(262, 78, 254, 172, "EXPRESSION", P["gold"])
-    sliders(268, 96, EXPR_P, P["gold"], 22)
+    sliders(268, 94, EXPR_P, P["gold"], 19)
     panel(520, 78, 256, 172, "CAST_+_ENVELOPE", P["lilac"])
     sliders(526, 96, AMP_P, P["lilac"], 24)
     lab(526, 196, "CAST-MIX_=_chance_each_note_is_sung", 8, P["dim"], P["panel"])
