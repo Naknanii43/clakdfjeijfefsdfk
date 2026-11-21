@@ -66,6 +66,7 @@ jobs:
         with:
           name: voxel-voices
           path: Voxel/voices
+      - run: cp Voxel/CREDITS.txt Voxel/voices/credits.txt
 
       - name: Get Camomile source (pinned)
         run: |

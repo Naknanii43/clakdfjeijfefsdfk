@@ -23,8 +23,7 @@ NVOICES = 8
 NW = len(WORDS)
 NG = 4  # PSOLA grain players per voice
 
-VOICE_NAMES = ["deep", "low", "low-warm", "in-between_(lower)", "in-between_(higher)",
-               "high-warm", "high", "very_high"]
+VOICE_NAMES = ["deep", "low", "low-warm", "between-lo", "between-hi", "high-warm", "high", "very-high"]
 TEXT_MODES = ["VOWELS", "LYRICS", "RANDOM_WORDS"]
 
 # name, label, lo, hi, log, default
@@ -1382,7 +1381,7 @@ def gen_main():
     sps = o("sel " + " ".join(str(i) for i in range(NSPEAKERS)), X + 400, 770)
     p.c(spi, sps)
     for i, nm in enumerate(VOICE_NAMES):
-        p.c(sps, p.msg(f"; vx-voicename label voice_{i+1}:_{nm}", X + 400 + i * 160, 795), i)
+        p.c(sps, p.msg(f"; vx-voicename label v{i+1}:{nm}", X + 400 + i * 160, 795), i)
     rli = o("r vx-line", X + 400, 830)
     lii = o("expr min(max(int($f1+0.5), 0), 9)", X + 400, 855)
     p.c(rli, lii)

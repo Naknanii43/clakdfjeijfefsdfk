@@ -1,0 +1,11 @@
+VOXEL voices - credits
+
+The singing voices were generated with:
+- Piper TTS (https://github.com/OHF-Voice/piper1-gpl, GPL-3.0). Piper was only used as a tool
+  to produce the audio; the plugin does not contain Piper code.
+- The "en_US-libritts_r-medium" multi-speaker voice model, trained on LibriTTS-R
+  (Koizumi et al. 2023, CC BY 4.0), which is derived from LibriVox public-domain audiobook
+  recordings.
+- The WORLD vocoder (pyworld, MIT) to re-synthesise every word at a steady sung pitch.
+
+The voices are synthetic: they do not belong to, and should not be presented as, any real person.
