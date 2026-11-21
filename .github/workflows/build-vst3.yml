@@ -12,6 +12,7 @@ on:
     paths:
       - "ClonkGoblin/**"
       - "Fogbank/**"
+      - "Voxel/**"
       - ".github/workflows/build-vst3.yml"
 
 permissions:
@@ -78,6 +79,7 @@ jobs:
           done <<'LIST'
           ClonkGoblin Kpq8 com.naknan.clonkgoblin
           Fogbank FgBk com.naknan.fogbank
+          Voxel VxVc com.naknan.voxel
           LIST
           ls -la *.zip
 
@@ -92,7 +94,7 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest *-macOS-Universal.zip \
-            --title "Clonk Goblin + Fogbank VST3 (macOS Universal)" \
+            --title "Clonk Goblin + Fogbank + Voxel VST3 (macOS Universal)" \
             --notes "Built from ${GITHUB_SHA::7}. Unzip, copy the .vst3 to ~/Library/Audio/Plug-Ins/VST3/, then run: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/<Name>.vst3"
 
       - name: Store builds on the 'builds' branch
