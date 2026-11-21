@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Generates VOXEL, a generative human-voice synth (Pure Data -> Camomile VST3).
+"""Generates VOXEL, a singing human-voice instrument (Pure Data -> Camomile VST3).
 
-    python3 tools/voxel.py         -> writes Voxel/ plugin folder
+    python3 tools/make_voices.py --piper MODEL.onnx   (once: builds Voxel/voices/)
+    python3 tools/voxel.py                             (writes the Voxel/ plugin patches)
 
-Voice model: glottal pulse + breath noise -> 5 formant filters (vowel morph),
-with vocal-tract size, tension, vibrato, jitter, scoop and consonant clicks.
-Every note can be sung by a different "cast" member (deep bass ... soprano,
-including androgynous / in-between voices).  SING mode improvises phrases.
+Each note sings a real (neural-TTS) human voice sample of a word or vowel,
+pitch-shifted with formant-preserving PSOLA grains: the attack plays, the vowel
+is held while the key is down, and the end of the word plays on release.
+8 voices span deep to very high (the middle ones are in-between / androgynous).
 """
 import json
 import os
@@ -14,35 +15,43 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from pdgen import Patch  # noqa: E402
+from voxel_words import LYRICS, NSPEAKERS, SRC_SR, VOWELS, WORDS  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OUT = os.path.join(ROOT, "Voxel")
 NVOICES = 8
+NW = len(WORDS)
+NG = 4  # PSOLA grain players per voice
+
+VOICE_NAMES = ["deep", "low", "low-warm", "in-between_(lower)", "in-between_(higher)",
+               "high-warm", "high", "very_high"]
+TEXT_MODES = ["VOWELS", "LYRICS", "RANDOM_WORDS"]
 
 # name, label, lo, hi, log, default
-VOICE_P = [("tract", "BODY(TRACT)", 0.8, 1.35, 0, 1.0), ("tune", "OCTAVE/TUNE", -24, 24, 0, 0),
-           ("breath", "BREATH", 0, 1, 0, 0.15), ("tension", "TENSION", 0, 1, 0, 0.5),
-           ("vowel", "VOWEL_U-O-A-E-I", 0, 4, 0, 2), ("fq", "FORMANT-FOCUS", 0.5, 2, 0, 1)]
+VOICE_P = [("speaker", "VOICE_(LOW->HIGH)", 0, 7, 0, 3), ("body", "BODY", 0.8, 1.25, 0, 1.0),
+           ("tune", "OCTAVE/TUNE", -24, 24, 0, 0), ("vowel", "VOWEL_ah-oh-ooh-ee-mm", 0, 4, 0, 0),
+           ("line", "LYRIC_LINE", 0, 9, 0, 0), ("speed", "WORD_SPEED", 0.5, 2, 0, 1)]
 EXPR_P = [("vibd", "VIBRATO", 0, 1, 0, 0.5), ("vibr", "VIB-SPEED", 3, 8, 0, 5.5),
-          ("vibdel", "VIB-DELAY", 0, 1500, 0, 350), ("jitter", "ROUGHNESS", 0, 1, 0, 0.3),
-          ("scoop", "SCOOP", 0, 4, 0, 1), ("glide", "GLIDE", 0, 500, 0, 0),
-          ("cons", "CONSONANTS", 0, 1, 0, 0.2)]
-AMP_P = [("cast", "CAST-MIX", 0, 1, 0, 0), ("att", "ATTACK", 5, 3000, 1, 80),
-         ("rel", "RELEASE", 20, 6000, 1, 500), ("spread", "WIDTH", 0, 1, 0, 0.5)]
-FX_P = [("chorus", "CHORUS", 0, 1, 0, 0.2), ("dsync", "ECHO-16THS", 1, 16, 0, 6),
-        ("dfb", "ECHO-FB", 0, 0.9, 0, 0.35), ("dmix", "ECHO-MIX", 0, 1, 0, 0.1),
+          ("vibdel", "VIB-DELAY", 0, 1500, 0, 350), ("jitter", "ROUGHNESS", 0, 1, 0, 0.2),
+          ("scoop", "SCOOP", 0, 4, 0, 0.8), ("glide", "GLIDE", 0, 500, 0, 0),
+          ("air", "AIR", 0, 1, 0, 0.05)]
+AMP_P = [("cast", "CAST-MIX", 0, 1, 0, 0), ("att", "ATTACK", 1, 3000, 1, 12),
+         ("rel", "RELEASE", 20, 6000, 1, 450), ("spread", "WIDTH", 0, 1, 0, 0.5)]
+FX_P = [("chorus", "CHORUS", 0, 1, 0, 0.15), ("dsync", "ECHO-16THS", 1, 16, 0, 6),
+        ("dfb", "ECHO-FB", 0, 0.9, 0, 0.3), ("dmix", "ECHO-MIX", 0, 1, 0, 0.08),
         ("rsize", "REVERB-SIZE", 0, 1, 0, 0.8), ("rmix", "REVERB-MIX", 0, 1, 0, 0.3),
         ("vol", "VOLUME", 0, 1, 0, 0.8)]
 GEN_P = [("dens", "DENSITY", 0, 1, 0, 0.5), ("harm", "HARMONY", 0, 1, 0, 0.25),
-         ("lyrics", "LYRICS", 0, 1, 0, 0.5)]
-MACROS = [("mtract", "BODY+", -0.2, 0.2, 0), ("mbreath", "BREATH+", -1, 1, 0),
+         ("lyrics", "NEW_LINES", 0, 1, 0, 0.5)]
+MACROS = [("mbody", "BODY+", -0.2, 0.2, 0), ("mair", "AIR+", -1, 1, 0),
           ("mvowel", "VOWEL+", -4, 4, 0), ("mcast", "CAST+", 0, 1, 0),
           ("mspace", "SPACE+", 0, 1, 0)]
-SOUND_KEYS = [p[0] for p in VOICE_P + EXPR_P + AMP_P + FX_P if p[0] != "vol"]
+SOUND_KEYS = ([p[0] for p in VOICE_P] + ["text"] + [p[0] for p in EXPR_P + AMP_P + FX_P if p[0] != "vol"])
 USER = ["arp", "sing", "hold", "arpm", "arate", "aoct", "agate", "sync", "bpm", "vol",
         "dens", "harm", "lyrics", "scale", "root"]
 ALLVALS = SOUND_KEYS + [m[0] for m in MACROS] + USER
 DEFAULTS = {p[0]: p[5] for p in VOICE_P + EXPR_P + AMP_P + FX_P}
+DEFAULTS["text"] = 0
 
 ARP_MODES = ["UP", "DOWN", "UP+DOWN", "RANDOM", "DRUNK"]
 ARP_RATES = ["1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"]
@@ -51,32 +60,14 @@ SCALES = [("MAJ-PENT", [0, 2, 4, 7, 9]), ("MIN-PENT", [0, 3, 5, 7, 10]),
           ("MINOR", [0, 2, 3, 5, 7, 8, 10])]
 SPQ = "if(vxarate==0, 1, if(vxarate==1, 2, if(vxarate==2, 3, if(vxarate==3, 4, if(vxarate==4, 6, 8)))))"
 
-# vowel formant table (adult reference, Hz): U O A E I  x  F1..F5
-VOWELS = [[300, 870, 2240, 3300, 3750],
-          [570, 840, 2410, 3300, 3750],
-          [730, 1090, 2440, 3300, 3750],
-          [530, 1840, 2480, 3300, 3750],
-          [270, 2290, 3010, 3300, 3750]]
-BW = [80, 90, 120, 150, 200]
-FGAIN = [1.0, 0.75, 0.55, 0.3, 0.18]
-
-# the cast: (name, tract, breath, open-quotient, vibrato depth, vibrato rate)
-CAST = [("deep_bass", 0.86, 0.05, 0.42, 0.45, 5.0),
-        ("baritone", 0.92, 0.08, 0.48, 0.55, 5.3),
-        ("tenor", 1.0, 0.06, 0.42, 0.65, 5.6),
-        ("falsetto", 1.02, 0.32, 0.72, 0.5, 5.8),
-        ("androgynous", 1.08, 0.15, 0.55, 0.5, 5.4),
-        ("alto", 1.12, 0.12, 0.55, 0.6, 5.2),
-        ("mezzo", 1.17, 0.1, 0.5, 0.7, 5.7),
-        ("soprano", 1.24, 0.1, 0.45, 0.8, 6.0)]
-
 HOSTP = [
-    ("bank", None),  # filled in below (needs len(BANKS))
-    ("mtract", "param -name Body -min -0.2 -max 0.2 -default 0;"),
-    ("mbreath", "param -name Breath -min -1 -max 1 -default 0;"),
+    ("bank", None),
+    ("mbody", "param -name Body -min -0.2 -max 0.2 -default 0;"),
+    ("mair", "param -name Air -min -1 -max 1 -default 0;"),
     ("mvowel", "param -name Vowel -min -4 -max 4 -default 0;"),
     ("mcast", "param -name Cast -min 0 -max 1 -default 0;"),
     ("mspace", "param -name Space -min 0 -max 1 -default 0;"),
+    ("text", "param -name Text -list Vowels/Lyrics/Random -default 0;"),
     ("arp", "param -name Arp -list Off/On -default 0;"),
     ("sing", "param -name Sing -list Off/On -default 0;"),
     ("hold", "param -name Hold -list Off/On -default 0;"),
@@ -85,32 +76,38 @@ HOSTP = [
 
 B = lambda name, desc, **kw: (name, desc, dict(DEFAULTS, **kw))  # noqa: E731
 BANKS = [
-    B("Choir_of_Everyone", "every_voice_type_at_once:_low_high_and_in-between", cast=1.0, vowel=2, vibd=0.55, att=250, rel=1200, chorus=0.3, rmix=0.45),
-    B("Deep_Bass_Monk", "low_and_round._like_a_cello_that_learned_to_sing", tract=0.86, tune=-12, vowel=1, tension=0.55, vibd=0.25, att=200, rel=900, rmix=0.4),
-    B("Velvet_Baritone", "warm_late-night_crooner", tract=0.92, tune=-12, vowel=2.3, breath=0.12, vibd=0.5, scoop=1.5, att=90, rel=600),
-    B("Bright_Tenor", "clear_and_ringing", tract=1.0, vowel=3, tension=0.65, vibd=0.6, vibr=5.8, scoop=0.8),
-    B("Falsetto_Feather", "light,_airy,_floating_high_notes", tract=1.02, tune=12, breath=0.4, tension=0.15, vowel=0.6, vibd=0.4, att=200, rel=900, rmix=0.45),
-    B("Countertenor_Glow", "high_and_pure_with_a_gentle_shimmer", tract=1.03, tune=12, breath=0.15, tension=0.45, vowel=1.6, vibd=0.6, vibr=5.6),
-    B("Androgynous_Hum", "an_in-between_voice:_neither_low_nor_high", tract=1.07, breath=0.25, vowel=0.3, tension=0.4, vibd=0.35, att=250, rel=1200, rmix=0.4),
-    B("In_Between_Air", "soft_breathy_voice_in_the_middle_of_the_range", tract=1.09, tune=5, breath=0.45, tension=0.3, vowel=2.5, vibd=0.3, chorus=0.35),
-    B("Warm_Alto", "rich_and_dark_but_high", tract=1.12, vowel=1.8, breath=0.12, vibd=0.6, vibr=5.2, scoop=1),
-    B("Smoky_Contralto", "low,_husky,_a_bit_of_rasp", tract=1.1, tune=-5, breath=0.35, jitter=0.6, vowel=2, vibd=0.45, scoop=2),
-    B("Mezzo_Daydream", "dreamy_mid-high_voice_far_away", tract=1.17, tune=12, vowel=2.6, breath=0.2, vibd=0.6, att=300, rel=1500, rmix=0.55, rsize=0.92),
-    B("Crystal_Soprano", "high,_bright,_lots_of_vibrato", tract=1.24, tune=12, vowel=3.2, tension=0.55, vibd=0.85, vibr=6.0, vibdel=250),
-    B("Big_Belt", "full-power_belting,_huge_vibrato", tract=1.18, tune=12, vowel=2.2, tension=0.95, breath=0.0, vibd=1.0, vibr=5.9, scoop=2.5, att=60),
-    B("Whisper_Secret", "almost_no_voice,_all_breath", tract=1.08, breath=1.0, tension=0.0, vowel=3, vibd=0.0, cons=0.6, rmix=0.35),
-    B("Gospel_Wail", "big_scoops_into_every_note", tract=1.12, vowel=2, tension=0.75, vibd=0.8, vibr=6.2, scoop=3.5, glide=120),
-    B("Robot_Uncle", "perfectly_steady._suspiciously_steady.", tract=0.95, tune=-12, vowel=2, tension=0.85, jitter=0.0, vibd=0.0, scoop=0, fq=1.8),
-    B("Sleepy_Humming", "mmmmm_with_your_mouth_closed", tract=1.0, vowel=0.0, fq=1.6, breath=0.1, tension=0.3, vibd=0.2, att=400, rel=1500, rmix=0.4),
-    B("Opera_Ghost", "a_tenor_haunting_a_huge_empty_hall", tract=1.0, vowel=1.5, tension=0.7, vibd=0.9, vibr=5.6, att=400, rel=2500, rsize=0.97, rmix=0.65),
-    B("Throat_Drone", "low_buzzy_overtone_drone", tract=0.8, tune=-24, vowel=2.5, tension=1.0, fq=2.0, vibd=0.1, jitter=0.4, att=600, rel=2000),
-    B("Lullaby_Voice", "soft,_slow,_and_very_kind", tract=1.15, vowel=0.8, breath=0.3, tension=0.25, vibd=0.35, att=350, rel=1800, rmix=0.5),
-    B("Street_Choir", "a_mixed_crowd_singing_together", cast=0.8, vowel=2.4, jitter=0.5, cons=0.4, vibd=0.5, chorus=0.4, rmix=0.35),
-    B("Babble_Crowd", "lots_of_people_saying_nothing_in_particular", cast=1.0, vowel=2, cons=0.9, jitter=0.6, att=40, rel=300, vibd=0.2, scoop=2),
-    B("Yodel_Goat", "a_very_enthusiastic_mountain_goat", tract=1.05, tune=12, vowel=3.5, glide=60, scoop=3, vibd=0.7, vibr=7.0, tension=0.7),
-    B("Airport_Angel", "please_proceed_to_gate_heaven", tract=1.2, tune=12, vowel=1.2, breath=0.25, vibd=0.4, att=500, rel=3000, chorus=0.5, rsize=0.96, rmix=0.6),
+    B("Choir_of_Everyone", "every_voice_from_deep_to_very_high_singing_the_lyrics_together", cast=1.0, text=1, line=0, att=20, rel=700, chorus=0.3, rmix=0.45),
+    B("Deep_Voice_Ballad", "a_deep_voice_singing_slow_words", speaker=0, tune=-12, text=1, line=1, vibd=0.4, rel=800),
+    B("Low_Voice_Ooh", "low_and_round_ooh", speaker=1, tune=-12, text=0, vowel=2, att=60, rel=900),
+    B("Warm_Low_Lullaby", "warm_low_voice_singing_come_home_to_me", speaker=2, tune=-12, text=1, line=9, vibd=0.45, rel=900, rmix=0.4),
+    B("In_Between_Ah", "an_in-between_voice_singing_ah", speaker=3, text=0, vowel=0, vibd=0.5),
+    B("In_Between_Lyrics", "an_in-between_voice:_we_fly_so_high", speaker=4, text=1, line=2),
+    B("High_Warm_Oh", "warm_high_voice_singing_oh", speaker=5, text=0, vowel=1, vibd=0.6),
+    B("High_Voice_Light", "high_voice:_you_are_my_light", speaker=6, text=1, line=6, vibd=0.6),
+    B("Very_High_Ee", "very_high_and_bright_ee", speaker=7, text=0, vowel=3, vibd=0.7, vibr=6.0),
+    B("Hummingbird", "closed-mouth_humming", speaker=6, text=0, vowel=4, vibd=0.35, att=80, rel=900),
+    B("Random_Talker", "random_words_from_the_song", speaker=3, text=2, speed=1.15, vibd=0.2, scoop=0.4),
+    B("Gospel_Scoop", "big_scoops_into_every_word", speaker=5, text=1, line=4, scoop=3, vibd=0.8, vibr=6.0),
+    B("Breathy_Secret", "soft_and_airy:_stay_with_me_now", speaker=4, text=1, line=3, air=0.7, vibd=0.3, rmix=0.4),
+    B("Robot_Choir", "perfectly_steady_voices", cast=0.6, text=0, vowel=0, vibd=0.0, jitter=0.0, scoop=0.0, att=30, rel=500),
+    B("Small_Body_Big_Voice", "a_low_voice_with_a_tiny_throat", speaker=1, tune=-12, body=1.2, text=1, line=5),
+    B("Big_Body_Little_Voice", "a_high_voice_with_a_huge_throat", speaker=6, body=0.84, text=1, line=7),
+    B("Slow_Words", "words_stretched_out_like_taffy", speaker=2, tune=-12, text=1, line=5, speed=0.6, rel=1300, rmix=0.5),
+    B("Fast_Chatter", "a_quick_crowd_saying_song_words", cast=0.8, text=2, speed=1.8, att=5, rel=220, vibd=0.15),
+    B("Opera_Hall", "big_vibrato_in_a_huge_hall", speaker=2, tune=-12, text=0, vowel=0, vibd=0.9, vibr=5.6, rsize=0.97, rmix=0.65, att=120, rel=1800),
+    B("Night_Choir", "i_feel_you_in_the_night_(everyone)", cast=1.0, text=1, line=0, rsize=0.95, rmix=0.55, rel=1200),
+    B("Street_Crowd", "a_mixed_crowd_saying_random_words", cast=1.0, text=2, jitter=0.5, scoop=1.5),
+    B("Ooh_Pad", "a_soft_wall_of_ooh", cast=0.7, text=0, vowel=2, att=500, rel=2200, chorus=0.4, rmix=0.5),
+    B("Yodel_Goat", "a_very_enthusiastic_mountain_goat", speaker=5, tune=12, text=0, vowel=3, glide=60, scoop=3, vibd=0.7, vibr=7.0),
+    B("Airport_Angel", "please_proceed_to_gate_heaven", speaker=7, text=0, vowel=1, att=400, rel=2600, chorus=0.5, rsize=0.96, rmix=0.6),
 ]
 HOSTP[0] = ("bank", f"param -name Bank -min 0 -max {len(BANKS)-1} -default 0 -nsteps {len(BANKS)};")
+
+LINEW = []  # lyric line -> word indices (8 slots per line)
+for line in LYRICS:
+    ids = [WORDS.index(w) for w in line.split()]
+    LINEW.append(ids + [0] * (8 - len(ids)))
+LINELEN = [len(line.split()) for line in LYRICS]
 
 
 def write_banks(levels):
@@ -126,10 +123,13 @@ def write_banks(levels):
 
 
 # =========================================================================
+
+
+# =========================================================================
 def gen_params():
     p = Patch()
     o = p.obj
-    p.text("VOXEL parameter store, lookup tables, and smoothed vowel formants (vx-f0..vx-f4)", 20, 5)
+    p.text("VOXEL parameter store, voice sample loading, and the lyric / word chooser", 20, 5)
     p.at(20, 40)
     p.max_y = 900
     p.col_w = 200
@@ -142,52 +142,91 @@ def gen_params():
             p.c(r, a)
             r = a
         p.c(r, o(f"v vx{name}"))
-    # tables
+    # ---- tables + sample loading
     p.at(700, 40)
     tabs = {
-        "vxft": [v for row in VOWELS for v in row],
         "vxscales": [x for _, sc in SCALES for x in (sc + [0] * 8)[:8]],
         "vxsclen": [len(sc) for _, sc in SCALES],
-        "vxctract": [c[1] for c in CAST], "vxcbreath": [c[2] for c in CAST],
-        "vxcoq": [c[3] for c in CAST], "vxcvibd": [c[4] for c in CAST],
-        "vxcvibr": [c[5] for c in CAST],
+        "vxlinew": [x for row in LINEW for x in row],
+        "vxlinelen": LINELEN,
     }
     for name, vals in tabs.items():
         o(f"array define {name} {len(vals)}")
+    for k in range(NSPEAKERS):
+        o(f"array define vxs{k} 10")
+    o("text define vxwords")
+    o("text define vxvoices")
     lb = o("loadbang")
-    t = o("t b b")
+    t = o("t b b b")
     p.c(lb, t)
     fill = "; " + "; ".join(f"{name} 0 " + " ".join(f"{v:g}" for v in vals)
                             for name, vals in tabs.items())
-    p.c(t, p.msg(fill), 1)
-    met = o("metro 25")
-    p.c(t, met, 0)
-    V = "min(max(vxvowel+vxmvowel, 0), 4)"
-    ve = o(f"expr {V}")
-    p.c(met, ve)
-    vch = o("change")
-    p.c(ve, vch)
-    for k in range(5):
-        i = "int(min($f1, 3.999))"
-        fr = f"($f1-{i})"
-        e = o(f"expr vxft[{i}*5+{k}]*(1-{fr})+vxft[({i}+1)*5+{k}]*{fr}")
-        p.c(vch, e)
-        tf = o("t f f")
-        p.c(e, tf)
-        p.c(tf, o(f"v vxfk{k}"), 1)
-        m = p.msg("$1 90")
-        p.c(tf, m, 0)
-        ln = o("line~")
-        p.c(m, ln)
-        p.c(ln, o(f"s~ vx-f{k}"))
+    p.c(t, p.msg(fill), 2)
+    sfr = o("soundfiler")
+    for k in range(NSPEAKERS):
+        m = p.msg(f"read -resize voices/voice{k}.wav vxs{k}")
+        p.c(t, m, 1)
+        p.c(m, sfr)
+    rw = p.msg("read voices/words.txt")
+    p.c(t, rw, 1)
+    # connect the text reads to their [text define]s
+    lines = p.lines
+    tw = next(i for i, l in enumerate(lines) if "text define vxwords" in l)
+    tv = next(i for i, l in enumerate(lines) if "text define vxvoices" in l)
+    p.c(rw, tw)
+    rv = p.msg("read voices/voices.txt")
+    p.c(t, rv, 1)
+    p.c(rv, tv)
+    p.c(t, p.msg("; vx-lyrreset bang"), 0)
+
+    # ---- lyric position / line
+    p.at(950, 40)
+    rl = o("r vx-line")
+    rr = o("r vx-lyrreset")
+    tl = o("t b b")
+    p.c(rl, tl)
+    p.c(rr, tl)
+    p.c(tl, p.msg("0"), 0)
+    p.c(p.n - 1, o("v vxlyrpos"))
+    cl = o("expr min(max(int(vxline+0.5), 0), 9)")
+    p.c(tl, cl, 1)
+    p.c(cl, o("v vxcurline"))
+    # SING: at the start of each phrase maybe jump to a new line
+    rph = o("r vx-phrase")
+    tp = o("t b b")
+    p.c(rph, tp)
+    p.c(tp, p.msg("0"), 0)
+    p.c(p.n - 1, o("v vxlyrpos"))
+    nl = o("expr if(random(0, 100)<vxlyrics*100, random(0, 10), vxcurline)")
+    p.c(tp, nl, 1)
+    p.c(nl, o("v vxcurline"))
+    # ---- word chooser: one new word per chord (notes < 25 ms apart share a word)
+    rwt = o("r vx-wordtick")
+    tt = o("t b b")
+    p.c(rwt, tt)
+    tim = o("timer")
+    p.c(tt, tim, 1, 1)  # measure time since the last note first
+    p.c(tt, tim, 0, 0)  # then reset
+    mo = o("moses 25")
+    p.c(tim, mo)
+    W = (f"if(vxtext<0.5, min(max(int(vxvowel+vxmvowel+0.5), 0), 4), "
+         f"if(vxtext<1.5, vxlinew[vxcurline*8+vxlyrpos%max(vxlinelen[vxcurline], 1)], random({len(VOWELS)}, {NW})))")
+    adv = o("t b b")
+    p.c(mo, adv, 1)
+    we = o(f"expr {W}")
+    p.c(adv, we, 1)
+    p.c(we, o("v vxwordnow"))
+    inc = o("expr vxlyrpos+1")
+    p.c(adv, inc, 0)
+    p.c(inc, o("v vxlyrpos"))
     p.save(os.path.join(OUT, "vx-params.pd"))
 
 
 # =========================================================================
 def gen_voice():
-    p = Patch(1400, 1000)
+    p = Patch(1500, 1100)
     o = p.obj
-    p.text("VOXEL voice: scoop/glide pitch + vibrato + jitter -> glottal pulse + breath -> 5 formants (+ consonant click) -> envelope. centred.", 20, 5)
+    p.text("VOXEL voice: real voice samples, formant-preserving PSOLA pitch shift. attack -> held vowel (ping-pong) -> word ending on release", 20, 5)
     inl = o("inlet", 20, 30)
     unp = o("unpack f f", 20, 55)
     p.c(inl, unp)
@@ -201,9 +240,10 @@ def gen_voice():
     p.c(on, sel)
 
     # ---------------- signal graph
-    p.at(600, 30)
-    p.max_y = 960
-    p.col_w = 250
+    p.at(620, 30)
+    p.max_y = 1060
+    p.col_w = 220
+    # pitch: scoop/glide + vibrato + roughness
     F0 = o("vline~")
     vibo = o("osc~ 5.5")
     vibenv = o("vline~")
@@ -221,74 +261,83 @@ def gen_voice():
     F = o("*~")
     p.c(F0, F)
     p.c(mod, F, 0, 1)
-    Fc = o("clip~ 30 1800")
+    Fc = o("clip~ 30 2000")
     p.c(F, Fc)
-    ph = o("phasor~")
-    p.c(Fc, ph)
-    # Rosenberg-style glottal pulse: slow opening (60% of the open phase), sharp closing
-    glot = o("expr~ if($v1<$f2*0.6, 0.5-0.5*cos(3.14159*$v1/max($f2*0.6, 0.02)), if($v1<$f2, cos(1.5708*($v1-$f2*0.6)/max($f2*0.4, 0.01)), 0))")
-    p.c(ph, glot)
-    # lip radiation (+6 dB/oct): differentiate, then undo the pitch-dependent gain
-    rad = o("rzero~ 1")
-    p.c(glot, rad)
-    radn = o("expr~ $v1*3000/max($v2, 30)")
-    p.c(rad, radn)
-    p.c(Fc, radn, 0, 1)
-    vg = o("*~ 1")
-    p.c(radn, vg)
-    nz = o("noise~")
-    pul = o("+~ 0.25")
-    p.c(glot, pul)
-    asp = o("*~")
-    p.c(nz, asp)
-    p.c(pul, asp, 0, 1)
-    bg = o("*~ 0")
-    p.c(asp, bg)
-    exc = o("hip~ 90")
-    p.c(vg, exc)
-    p.c(bg, exc)
-    tract_mults = []
-    fsum = o("*~ 1")
-    vcfs = []
-    for k in range(5):
-        fk = o(f"r~ vx-f{k}")
-        tm = o("*~ 1")
-        p.c(fk, tm)
-        tract_mults.append(tm)
-        fc = o("clip~ 50 9000")
-        p.c(tm, fc)
-        v = o("vcf~ 5")
-        p.c(exc, v)
-        p.c(fc, v, 0, 1)
-        g = o(f"*~ {FGAIN[k]}")
-        p.c(v, g)
-        p.c(g, fsum)
-        vcfs.append(v)
-    # consonant click
-    cn = o("noise~")
-    cc = o("sig~ 4000")
-    cv = o("vcf~ 2.5")
-    p.c(cn, cv)
-    p.c(cc, cv, 0, 1)
-    ce = o("vline~")
-    cg = o("*~")
-    p.c(cv, cg)
-    p.c(ce, cg, 0, 1)
-    p.c(cg, fsum)
+    # read position in the voice sample: attack/release ramp OR sustain ping-pong
+    posA = o("vline~")
+    susph = o("phasor~ 1")
+    posS = o("expr~ $f2+$f3*(1-abs(2*$v1-1))")
+    p.c(susph, posS)
+    mode = o("vline~")
+    pos = o("expr~ if($v3>0.5, $v2, $v1)")
+    p.c(posA, pos)
+    p.c(posS, pos, 0, 1)
+    p.c(mode, pos, 0, 2)
+    # PSOLA: grain duration D = min(2 source periods, 4 target periods)
+    D = o("expr~ min(2/max($f2, 20), 4/max($v1, 20))")
+    p.c(Fc, D)
+    master = o("*~ 0.25")
+    p.c(Fc, master)
+    mph = o("phasor~")
+    p.c(master, mph)
+    gq = o("expr~ floor($v1/max($f2, 1)+0.5)*max($f2, 1)")  # snap to the pitch-period grid
+    p.c(pos, gq)
+    gsum = o("*~ 1")
+    tabs = []
+    for k in range(NG):
+        if k:
+            sh = o(f"+~ {k/NG}")
+            p.c(mph, sh)
+            q = o("wrap~")
+            p.c(sh, q)
+        else:
+            q = mph
+        gs = o("samphold~")
+        p.c(gq, gs)
+        p.c(q, gs, 0, 1)
+        w = o("expr~ $v1*4/(max($v2, 20)*max($v3, 0.0001))")
+        p.c(q, w)
+        p.c(Fc, w, 0, 1)
+        p.c(D, w, 0, 2)
+        rp = o(f"expr~ $v1+$v2*$v3*{SRC_SR}*$f4")
+        p.c(gs, rp)
+        p.c(w, rp, 0, 1)
+        p.c(D, rp, 0, 2)
+        tr = o("tabread4~ vxs0")
+        p.c(rp, tr)
+        tabs.append(tr)
+        win = o("expr~ if($v2<1, 0.5-0.5*cos(6.28319*$v2), 0)*$v1")
+        p.c(tr, win)
+        p.c(w, win, 0, 1)
+        p.c(win, gsum)
+        tabs.append(rp)
+    olan = o("expr~ $v1*2/max($v2*$v3, 1)")  # overlap-add normalisation
+    p.c(gsum, olan)
+    p.c(D, olan, 0, 1)
+    p.c(Fc, olan, 0, 2)
+    # air (breath) layer
+    an = o("noise~")
+    ah = o("hip~ 2500")
+    p.c(an, ah)
+    ag = o("*~ 0")
+    p.c(ah, ag)
     AE = o("vline~")
     amp = o("*~")
-    p.c(fsum, amp)
+    p.c(olan, amp)
+    p.c(ag, amp)
     p.c(AE, amp, 0, 1)
     out = o("*~ 1")
     p.c(amp, out)
-    p.c(out, o("outlet~", 1200, 970))
-    p.c(out, o("outlet~", 1300, 970))
+    p.c(out, o("outlet~", 1300, 1075))
+    p.c(out, o("outlet~", 1400, 1075))
+    tabreads = tabs[0::2]
+    readpos = tabs[1::2]
 
     # ---------------- note on
     p.at(20, 190)
-    p.max_y = 960
-    p.col_w = 290
-    NB = 13
+    p.max_y = 1060
+    p.col_w = 300
+    NB = 12
     ton = o("t " + "b " * NB)
     p.c(sel, ton, 1)
     nxt = [NB - 1]
@@ -298,96 +347,123 @@ def gen_voice():
         nxt[0] -= 1
         return k
 
-    # 12: who sings this note? (-1 = the bank's own voice, 0..7 = cast member)
-    who = o(f"expr if(random(0, 1000)<min(vxcast+vxmcast, 1)*1000, random(0, {len(CAST)}), -1)")
+    # 11: which voice sings this note
+    who = o(f"expr if(random(0, 1000)<min(vxcast+vxmcast, 1)*1000, random(0, {NSPEAKERS}), min(max(int(vxspeaker+0.5), 0), {NSPEAKERS-1}))")
     p.c(ton, who, step())
-    p.c(who, o("v vxxs"))
-    # 11: character values for this note
-    chars = o("expr (if(vxxs<0, vxtract, vxctract[vxxs])+vxmtract)*(1+(random(0, 1001)/1000-0.5)*0.05); "
-              "min(max(if(vxxs<0, vxbreath, vxcbreath[vxxs])+vxmbreath, 0), 1); "
-              "if(vxxs<0, 0.8-0.45*vxtension, vxcoq[vxxs]); "
-              "if(vxxs<0, vxvibd, vxcvibd[vxxs]); "
-              "if(vxxs<0, vxvibr, vxcvibr[vxxs])*(1+(random(0, 1001)/1000-0.5)*0.1)")
-    p.c(ton, chars, step())
-    for i, name in enumerate(("vxxtr", "vxxbr", "vxxoq", "vxxvd", "vxxvr")):
-        p.c(chars, o(f"v {name}"), i)
-    # 10: tract -> formant multipliers, focus -> filter q
+    tw = o("t f f f")
+    p.c(who, tw)
+    p.c(tw, o("v vxxs"), 2)
+    # 10: that voice's sample table + sung pitch
+    mk = o("makefilename vxs%d")
+    p.c(tw, mk, 1)
+    ms = p.msg("set $1")
+    p.c(mk, ms)
+    for tr in tabreads:
+        p.c(ms, tr)
+    tvg = o("text get vxvoices")
+    p.c(tw, tvg, 0)
+    p.c(tvg, o("v vxxfref"))
     k10 = step()
-    trx = o("expr vxxtr")
-    p.c(ton, trx, k10)
-    for tm in tract_mults:
-        p.c(trx, tm, 0, 1)
-    # formant sharpness follows the (moving) vowel: refresh at note-on and every 40 ms
-    qlb = o("loadbang")
-    qmet = o("metro 40")
-    p.c(qlb, qmet)
-    for k, v in enumerate(vcfs):
-        qe = o(f"expr max(vxfk{k}*max(vxxtr, 0.5)/({BW[k]}/max(vxfq, 0.3)), 1)")
-        p.c(ton, qe, k10)
-        p.c(qmet, qe)
-        p.c(qe, v, 0, 2)
-    # 9: breath / voiced mix, open quotient
+    # word boundaries: start susA susB end
+    wi = o(f"expr vxxs*{NW}+vxwordnow")
+    p.c(ton, wi, k10)
+    twg = o("text get vxwords")
+    p.c(wi, twg)
+    up = o("unpack f f f f")
+    p.c(twg, up)
+    for i, nm in enumerate(("vxxa", "vxxsa", "vxxsb", "vxxe")):
+        p.c(up, o(f"v {nm}"), i)
+    # 9: grain params: source period, sung pitch, formant (BODY) read speed
     k9 = step()
-    bge = o("expr vxxbr*0.9; 1-vxxbr*0.85; vxxoq")
-    p.c(ton, bge, k9)
-    p.c(bge, bg, 0, 1)
-    p.c(bge, vg, 1, 1)
-    p.c(bge, glot, 2, 1)
-    # 8: vibrato + roughness
+    per = o(f"expr {SRC_SR}/max(vxxfref, 20); vxxfref; min(max(vxbody+vxmbody, 0.6), 1.5)")
+    p.c(ton, per, k9)
+    p.c(per, gq, 0, 1)
+    p.c(per, D, 1, 1)
+    for rp in readpos:
+        p.c(per, rp, 2, 3)
+    # 8: position envelopes (attack -> sustain ping-pong)
     k8 = step()
-    vr = o("expr vxxvr")
-    p.c(ton, vr, k8)
+    pe = o(f"expr vxxa; vxxsa; (vxxsa-vxxa)/{SRC_SR/1000}/max(vxspeed, 0.2); "
+           f"{SRC_SR}/max(vxxsb-vxxsa, 50)/3.2; vxxsb-vxxsa")
+    p.c(ton, pe, k8)
+    ppk = o("pack f f f")
+    p.c(pe, ppk, 0, 0)
+    p.c(pe, ppk, 1, 1)
+    p.c(pe, ppk, 2, 2)
+    p.c(ppk, p.msg("$1, $2 $3"))
+    p.c(p.n - 1, posA)
+    sse = o("expr vxxsa; vxxsb-vxxsa")
+    p.c(ton, sse, k8)
+    p.c(sse, posS, 0, 1)
+    p.c(sse, posS, 1, 2)
+    p.c(pe, susph, 3, 0)  # ping-pong rate
+    mt = o("expr (vxxsa-vxxa)/" + f"{SRC_SR/1000}" + "/max(vxspeed, 0.2)")
+    p.c(ton, mt, k8)
+    tm = o("t f f")
+    p.c(mt, tm)
+    p.c(tm, p.msg("0, 1 0 $1"), 0)
+    p.c(p.n - 1, mode)
+    dl = o("delay")
+    p.c(tm, dl, 1, 0)  # float into [delay] = start with that time
+    p.c(dl, p.msg("0"))
+    p.c(p.n - 1, susph, 0, 1)  # reset the ping-pong to the vowel start
+    # 7: vibrato + roughness
+    k7 = step()
+    vr = o("expr vxvibr*(1+(random(0, 1001)/1000-0.5)*0.1)")
+    p.c(ton, vr, k7)
     p.c(vr, vibo)
-    jge = o("expr vxjitter*0.012")
-    p.c(ton, jge, k8)
+    jge = o("expr vxjitter*0.01")
+    p.c(ton, jge, k7)
     p.c(jge, jg, 0, 1)
-    vde = o("expr vxxvd*0.035; vxvibdel")
+    vde = o("expr vxvibd*0.03; vxvibdel")
     p.c(ton, vde, step())
     vpk = o("pack f f")
     p.c(vde, vpk, 0, 0)
     p.c(vde, vpk, 1, 1)
     p.c(vpk, p.msg("0, $1 500 $2"))
     p.c(p.n - 1, vibenv)
-    # 6: pitch: (glide) to a scooped start, then slide up to the note
-    pe = o("expr 440*pow(2, (vxxnote+vxtune-69-vxscoop+(random(0, 101)/100-0.5)*0.12)/12); vxglide; "
-           "440*pow(2, (vxxnote+vxtune-69+(random(0, 101)/100-0.5)*0.12)/12); 40+vxscoop*25")
-    p.c(ton, pe, step())
-    ppk = o("pack f f f f")
+    # 5: pitch (glide to a scooped start, slide up to the note)
+    pp = o("expr 440*pow(2, (vxxnote+vxtune-69-vxscoop+(random(0, 101)/100-0.5)*0.1)/12); vxglide; "
+           "440*pow(2, (vxxnote+vxtune-69+(random(0, 101)/100-0.5)*0.1)/12); 40+vxscoop*25")
+    p.c(ton, pp, step())
+    fpk = o("pack f f f f")
     for i in range(4):
-        p.c(pe, ppk, i, i)
-    p.c(ppk, p.msg("$1 $2, $3 $4 $2"))
+        p.c(pp, fpk, i, i)
+    p.c(fpk, p.msg("$1 $2, $3 $4 $2"))
     p.c(p.n - 1, F0)
-    # 5: consonant click (probability = CONSONANTS)
-    cse = o("expr random(0, 1000)<vxcons*1000")
-    p.c(ton, cse, step())
-    css = o("sel 1")
-    p.c(cse, css)
-    cpe = o("expr 2500+random(0, 4500); 25+random(0, 50); 0.6*vxcons+0.3")
-    p.c(css, cpe)
-    p.c(cpe, cc, 0, 0)
-    cpk = o("pack f f")
-    p.c(cpe, cpk, 2, 1)  # gain -> right (outlet 2 fires first)
-    p.c(cpe, cpk, 1, 0)  # duration -> left (fires last)
-    p.c(cpk, p.msg("$2 1, 0 $1 1"))
-    p.c(p.n - 1, ce)
-    # 4: level
+    # 4: air + level
+    k4 = step()
+    air = o("expr min(max(vxair+vxmair, 0), 1)*0.06")
+    p.c(ton, air, k4)
+    p.c(air, ag, 0, 1)
     lve = o("expr vxlvl*0.9")
-    p.c(ton, lve, step())
+    p.c(ton, lve, k4)
     p.c(lve, out, 0, 1)
-    # 3..0: amp envelope
-    ae = o("expr pow(vxxvel/127, 0.8); vxatt")
+    # 3: amp envelope
+    ae = o("expr pow(vxxvel/127, 0.7); vxatt")
     p.c(ton, ae, step())
     apk = o("pack f f")
     p.c(ae, apk, 0, 0)
     p.c(ae, apk, 1, 1)
     p.c(apk, p.msg("$1 $2"))
     p.c(p.n - 1, AE)
-    # ---------------- note off
-    rl = o("expr max(vxrel, 10)")
+
+    # ---------------- note off: play the end of the word, then fade
+    rl = o(f"expr vxxsb; vxxe; (vxxe-vxxsb)/{SRC_SR/1000}/max(vxspeed, 0.2); "
+           f"max(vxrel, (vxxe-vxxsb)/{SRC_SR/1000}/max(vxspeed, 0.2))")
     p.c(sel, rl, 0)
-    rm = p.msg("0 $1")
-    p.c(rl, rm)
-    p.c(rm, AE)
+    rpk = o("pack f f f")
+    p.c(rl, rpk, 0, 0)
+    p.c(rl, rpk, 1, 1)
+    p.c(rl, rpk, 2, 2)
+    p.c(rpk, p.msg("$1, $2 $3"))
+    p.c(p.n - 1, posA)
+    p.c(rl, p.msg("0 $1"), 3)
+    p.c(p.n - 1, AE)
+    p.c(sel, p.msg("0"), 0)
+    p.c(p.n - 1, mode)
+    p.c(sel, p.msg("stop"), 0)
+    p.c(p.n - 1, dl)
     p.save(os.path.join(OUT, "vx-voice.pd"))
 
 
@@ -807,6 +883,7 @@ def gen_brain():
     re2 = o("expr random(3, 9)")
     p.c(rt, re2, 0)
     p.c(re2, o("v vxphr"))
+    p.c(rt, o("s vx-phrase"), 0)  # new phrase: maybe a new lyric line
     nt = o("t b b b b b")
     p.c(rsel, nt, 1)
     dg = o(f"expr min(max(vxdeg+if(random(0, 10)<7, random(-1, 2), random(-3, 4)), -{L}), 2*{L}-1)")
@@ -815,11 +892,6 @@ def gen_brain():
     gn = o(f"expr {note_of('vxdeg')}")
     p.c(nt, gn, 3)
     p.c(gn, o("v vxgnote"))
-    vw = o("expr if(random(0, 100)<vxlyrics*100, random(0, 41)/10, -1)")
-    p.c(nt, vw, 2)
-    vwm = o("moses 0")
-    p.c(vw, vwm)
-    p.c(vwm, o("s vx-vowel-set"), 1)
     pl1 = play("vxgnote", "65+random(0, 45)", "vxarpcur")
     p.c(nt, pl1, 1)
     hq = o("expr random(0, 100)<vxharm*100")
@@ -1129,7 +1201,7 @@ def gen_main():
     cnv, lab = p.cnv, p.label
     cnv(0, 0, W, H, P["bg"])
     cnv(0, 0, W, 54, P["top"], "VOXEL", 10, 20, 26, P["coral"])
-    lab(12, 44, f"generative_voice_machine_//_8-voice_cast_//_{len(BANKS)}_banks", 9, P["lilac"], P["top"])
+    lab(12, 44, f"real_singing_voices_//_8_voices_//_{len(WORDS)}_words_//_{len(BANKS)}_banks", 9, P["lilac"], P["top"])
     p.bng(250, 12, 18, "vx-prev", "empty", "<", P["bg"], P["coral"], P["bg"], 6, 9, 11)
     p.nbx(272, 12, 3, 18, 0, len(BANKS) - 1, "vx-bank", "vx-bank-set", "BANK", "#000000",
           P["coral"], P["coral"], 0, -6, 9)
@@ -1150,15 +1222,20 @@ def gen_main():
                   col, "#1e1424", P["text"])
 
     panel(4, 78, 254, 172, "VOICE", P["coral"])
-    sliders(10, 96, VOICE_P, P["coral"], 25)
+    sliders(10, 94, VOICE_P, P["coral"], 22)
+    lab(10, 230, "TEXT", 8, P["text"], P["panel"])
+    p.hradio(38, 223, 13, 3, "vx-text", "vx-text-set", "empty", P["coral"], "#1e1424", P["text"])
+    lab(82, 230, "VOWELS", 9, P["coral"], P["panel"], "vx-textname")
+    lab(150, 230, "...", 8, P["dim"], P["panel"], "vx-voicename")
+    lab(10, 243, "...", 8, P["mint"], P["panel"], "vx-linetext")
     panel(262, 78, 254, 172, "EXPRESSION", P["gold"])
     sliders(268, 96, EXPR_P, P["gold"], 22)
     panel(520, 78, 256, 172, "CAST_+_ENVELOPE", P["lilac"])
     sliders(526, 96, AMP_P, P["lilac"], 24)
-    lab(526, 196, "CAST-MIX_=_chance_each_note_is_sung_by:", 8, P["dim"], P["panel"])
-    lab(526, 210, "deep-bass_baritone_tenor_falsetto", 8, P["dim"], P["panel"])
-    lab(526, 222, "androgynous_alto_mezzo_soprano", 8, P["dim"], P["panel"])
-    lab(526, 238, "BODY:_small=deep_voice__big=high_voice", 8, P["dim"], P["panel"])
+    lab(526, 196, "CAST-MIX_=_chance_each_note_is_sung", 8, P["dim"], P["panel"])
+    lab(526, 208, "by_another_of_the_8_voices_(deep->", 8, P["dim"], P["panel"])
+    lab(526, 220, "in-between->very_high)", 8, P["dim"], P["panel"])
+    lab(526, 238, "BODY_moves_the_formants:_<1_bigger_throat", 8, P["dim"], P["panel"])
 
     panel(4, 254, 254, 222, "SPACE", P["mint"])
     sliders(10, 272, FX_P, P["mint"], 28)
@@ -1199,7 +1276,7 @@ def gen_main():
     sliders(526, 272, MACROS, P["coral"], 24)
     lab(526, 400, "these_ride_on_top_of_the_bank", 8, P["dim"], P["panel"])
     lab(526, 414, "-_automate_them_in_your_DAW", 8, P["dim"], P["panel"])
-    lab(526, 436, "try:_bank_0_+_SING_on", 9, P["gold"], P["panel"])
+    lab(526, 436, "try:_bank_0_+_SING_on_+_play", 9, P["gold"], P["panel"])
     lab(526, 452, "or_hold_a_chord_+_ARP+HOLD", 9, P["gold"], P["panel"])
     p.gop(W, H)
 
@@ -1229,9 +1306,19 @@ def gen_main():
     p.c(pe, ppk, 1, 1)
     pt = o("t l b", X + 360, 195)
     p.c(ppk, pt)
-    poly = o(f"poly {NVOICES} 1", X, 220)
-    p.c(brain, poly)
-    p.c(pt, poly, 0)
+    # every note-on asks for a word first (one new word per chord), then goes to [poly]
+    nsplit = o("t a a", X, 205)
+    p.c(brain, nsplit)
+    p.c(pt, nsplit, 0)
+    nrl = o("route list", X + 120, 185)
+    p.c(nsplit, nrl, 1)
+    nvu = o("unpack f f", X + 120, 205)
+    p.c(nrl, nvu, 0)
+    nvm = o("moses 1", X + 120, 230)
+    p.c(nvu, nvm, 1)
+    p.c(nvm, o("s vx-wordtick", X + 120, 255), 1)
+    poly = o(f"poly {NVOICES} 1", X, 230)
+    p.c(nsplit, poly, 0)
     pd_ = o("delay 700", X + 460, 220)
     p.c(pt, pd_, 1)
     poff = o("expr vxroot+12; 0", X + 460, 245)
@@ -1239,14 +1326,14 @@ def gen_main():
     pof = o("pack f f", X + 460, 270)
     p.c(poff, pof, 0, 0)
     p.c(poff, pof, 1, 1)
-    p.c(pof, poly)
+    p.c(pof, nsplit)
     pk = o("pack f f f", X, 250)
     p.c(poly, pk, 0, 0)
     p.c(poly, pk, 1, 1)
     p.c(poly, pk, 2, 2)
     cl = o(f"clone -s 1 vx-voice {NVOICES}", X, 280)
     p.c(pk, cl)
-    p.c(cl, o("s~ vx-dry", X + 300, 300), 0)  # tap for offline tests
+    p.c(cl, o("s~ vx-dry", X + 300, 310), 0)  # tap for offline tests
     fx = o("vx-fx", X, 310)
     p.c(cl, fx, 0, 0)
     p.c(cl, fx, 1, 1)
@@ -1287,12 +1374,28 @@ def gen_main():
     namer("vx-arpm", ["vx-arpmname"], ARP_MODES, 320)
     namer("vx-arate", ["vx-aratename"], ARP_RATES, 420)
     namer("vx-scale", ["vx-scalename"], [s[0] for s in SCALES], 520)
+    namer("vx-text", ["vx-textname"], TEXT_MODES, 620)
+    # voice name + lyric line text labels
+    rsp = o("r vx-speaker", X + 400, 720)
+    spi = o(f"expr min(max(int($f1+0.5), 0), {NSPEAKERS-1})", X + 400, 745)
+    p.c(rsp, spi)
+    sps = o("sel " + " ".join(str(i) for i in range(NSPEAKERS)), X + 400, 770)
+    p.c(spi, sps)
+    for i, nm in enumerate(VOICE_NAMES):
+        p.c(sps, p.msg(f"; vx-voicename label voice_{i+1}:_{nm}", X + 400 + i * 160, 795), i)
+    rli = o("r vx-line", X + 400, 830)
+    lii = o("expr min(max(int($f1+0.5), 0), 9)", X + 400, 855)
+    p.c(rli, lii)
+    lis = o("sel " + " ".join(str(i) for i in range(len(LYRICS))), X + 400, 880)
+    p.c(lii, lis)
+    for i, line in enumerate(LYRICS):
+        p.c(lis, p.msg(f'; vx-linetext label "{line.replace(" ", "_")}"'.replace('"', ''), X + 400 + i * 160, 905), i)
 
     lb = o("loadbang", X, 520)
     init = ("; vx-bpm-set 92; vx-arp-set 0; vx-sing-set 0; vx-hold-set 0; vx-arpm-set 0; "
             "vx-arate-set 1; vx-aoct-set 0; vx-agate-set 0.8; vx-sync-set 1; vx-vol-set 0.8; "
             "vx-dens-set 0.5; vx-harm-set 0.25; vx-lyrics-set 0.5; vx-scale-set 1; vx-root-set 57; "
-            "vx-mtract-set 0; vx-mbreath-set 0; vx-mvowel-set 0; vx-mcast-set 0; vx-mspace-set 0")
+            "vx-mbody-set 0; vx-mair-set 0; vx-mvowel-set 0; vx-mcast-set 0; vx-mspace-set 0")
     p.c(lb, p.msg(init, X, 545))
     p.save(os.path.join(OUT, "Voxel.pd"))
 

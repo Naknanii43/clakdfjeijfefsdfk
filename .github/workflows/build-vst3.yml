@@ -13,17 +13,59 @@ on:
       - "ClonkGoblin/**"
       - "Fogbank/**"
       - "Voxel/**"
+      - "tools/make_voices.py"
+      - "tools/voxel_words.py"
       - ".github/workflows/build-vst3.yml"
 
 permissions:
   contents: write
 
 jobs:
+  voices:
+    # VOXEL's singing voices: neural TTS (Piper + LibriTTS-R voices) -> WORLD steady-pitch words
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: Voxel/voices
+          key: voxel-voices-${{ hashFiles('tools/make_voices.py', 'tools/voxel_words.py') }}
+      - name: Generate voices
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          pip install -q piper-tts pyworld soundfile scipy numpy
+          mkdir -p /tmp/model && cd /tmp/model
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts_r/medium
+          curl -sSfL -o voice.onnx "$base/en_US-libritts_r-medium.onnx"
+          curl -sSfL -o voice.onnx.json "$base/en_US-libritts_r-medium.onnx.json"
+          cd "$GITHUB_WORKSPACE"
+          python3 tools/make_voices.py --piper /tmp/model/voice.onnx
+      - run: ls -la Voxel/voices && cat Voxel/voices/voices.json | head -40
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voxel-voices
+          path: Voxel/voices
+      - name: Store voices on the 'voices-data' branch (for offline testing)
+        run: |
+          mkdir -p /tmp/v && cp -R Voxel/voices /tmp/v/
+          cd /tmp/v && git init -q -b voices-data
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add .
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "voices ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" voices-data
+
   mac:
+    needs: voices
     runs-on: macos-15-intel
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: voxel-voices
+          path: Voxel/voices
 
       - name: Get Camomile source (pinned)
         run: |
