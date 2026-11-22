@@ -66,7 +66,24 @@ SRC_SR = 22050
 # ---- SPEAK mode: natural speech (no musical pitch), one clip per key
 EXPRESSIONS = ["Hey!", "Oh!", "Wow.", "Hmm.", "Yeah!", "Okay.", "Hello.", "Ha ha ha!", "Oh no.",
                "Uh huh.", "Whoa!", "Yes!", "No.", "What?", "Come on!", "Listen.", "Shh.", "Ahh.",
-               "Thank you.", "Goodbye."]
+               "Thank you.", "Goodbye.",
+               # added later (keep the first twenty in place: keys map to them in order)
+               "Hi!", "Hey there!", "Oh my god!", "Oh wow!", "Yay!", "Woo!", "Hooray!", "Uh oh.",
+               "Oops!", "Ouch!", "Eww.", "Aww.", "Mmm, yummy.", "Huh?", "Hmm?", "Right.", "Sure.",
+               "Nope.", "Maybe.", "Really?", "Seriously?", "Cool.", "Nice!", "Amazing!", "Oh yeah!",
+               "Let's go!", "Wait!", "Stop!", "Sorry.", "Please.", "Bye!", "Good night."]
+
+# everyday spoken phrases (SPEAK = PHRASES)
+PHRASES = ["How are you today?", "I'm on my way.", "Can you hear me?", "Are you ready?", "Here we go.",
+           "One, two, three, four.", "Turn it up.", "Welcome to the show.", "Thank you so much.",
+           "I love this song.", "What a beautiful day.", "Is anybody out there?", "Don't stop now.",
+           "Everybody, put your hands up!", "Let me tell you something.", "Once upon a time.",
+           "This is the end.", "I can't believe it.", "Look at the stars.", "Do you remember?",
+           "Take a deep breath.", "Everything will be okay.", "I'll see you tomorrow.",
+           "It's getting late.", "Where are you going?", "Follow me.", "Listen to the rhythm.",
+           "Feel the music.", "We are live.", "Good morning, everyone.", "Have a nice day.",
+           "I miss you.", "Call me back.", "It's time to go.", "Never give up.", "Close your eyes.",
+           "Welcome home.", "Is this real?", "Just breathe.", "Ladies and gentlemen."]
 
 
 def spoken_line(line):
@@ -75,6 +92,8 @@ def spoken_line(line):
     return s[0].upper() + s[1:] + "."
 
 
-SPEAK_CLIPS = [spoken_line(l) for l in LYRICS] + EXPRESSIONS  # lines first, then expressions
+SPEAK_CLIPS = [spoken_line(l) for l in LYRICS] + EXPRESSIONS + PHRASES  # in this order
 NLINES = len(LYRICS)
 NEXPR = len(EXPRESSIONS)
+NPHR = len(PHRASES)
+SPEAK_SR = 16000  # speech is stored at 16 kHz (plenty for talking, half the size)

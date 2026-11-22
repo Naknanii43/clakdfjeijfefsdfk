@@ -15,8 +15,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from pdgen import Patch  # noqa: E402
-from voxel_words import (EXPRESSIONS, LYRICS, NEXPR, NLINES, NSPEAKERS, SPEAK_CLIPS, SRC_SR,  # noqa: E402
-                         VOWELS, WORDS)
+from voxel_words import (EXPRESSIONS, LYRICS, NEXPR, NLINES, NPHR, NSPEAKERS, PHRASES,  # noqa: E402
+                         SPEAK_CLIPS, SPEAK_SR, SRC_SR, VOWELS, WORDS)
 NCLIPS = len(SPEAK_CLIPS)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -28,7 +28,7 @@ NG = 4  # PSOLA grain players per voice
 VOICE_NAMES = [f"{r}-{t}" for r in ("deep", "low", "mid-low", "mid-high", "high", "very-high")
                for t in ("warm", "bright")]  # mid-low / mid-high = in-between voices
 TEXT_MODES = ["VOWELS", "LYRICS", "RANDOM_WORDS"]
-SPEAK_MODES = ["OFF_(sing)", "SPEAK_LINES", "EXPRESSIONS"]
+SPEAK_MODES = ["OFF_(sing)", "SPEAK_LINES", "EXPRESSIONS", "PHRASES"]
 
 # name, label, lo, hi, log, default
 VOICE_P = [("speaker", "VOICE_(LOW->HIGH)", 0, NSPEAKERS - 1, 0, 5), ("body", "BODY", 0.8, 1.25, 0, 1.0),
@@ -73,7 +73,7 @@ HOSTP = [
     ("mcast", "param -name Cast -min 0 -max 1 -default 0;"),
     ("mspace", "param -name Space -min 0 -max 1 -default 0;"),
     ("text", "param -name Text -list Vowels/Lyrics/Random -default 0;"),
-    ("speak", "param -name Speak -list Off/Lines/Expressions -default 0;"),
+    ("speak", "param -name Speak -list Off/Lines/Expressions/Phrases -default 0;"),
     ("arp", "param -name Arp -list Off/On -default 0;"),
     ("sing", "param -name Sing -list Off/On -default 0;"),
     ("hold", "param -name Hold -list Off/On -default 0;"),
@@ -129,6 +129,8 @@ BANKS += [
     B("Reactions", "SPEAK:_hey_oh_wow_haha_..._(one_per_key)", speaker=7, speak=2, att=2, rel=300, rmix=0.2),
     B("Chipmunk_News", "SPEAK:_sped-up_tape_voice", speaker=9, speak=1, spitch=7, att=2, rel=300, rmix=0.15),
     B("Slow_Motion_Voice", "SPEAK:_slowed-down_tape_voice", speaker=4, speak=2, spitch=-7, att=2, rel=300, rmix=0.45, rsize=0.9),
+    B("Show_Host", "SPEAK_PHRASES:_welcome_to_the_show_(one_phrase_per_key)", speaker=3, speak=3, att=2, rel=300, rmix=0.2),
+    B("Hype_Crowd", "SPEAK_EXPRESSIONS:_a_crowd_cheering_and_reacting", speaker=5, cast=1.0, speak=2, att=2, rel=300, rmix=0.3, chorus=0.1),
     B("Bright_Pop_Voice", "a_bright_forward_mid-high_voice", speaker=7, tone=0.85, text=1, line=21, vibd=0.4, scoop=1.2, rmix=0.25, dmix=0.15),
 ]
 HOSTP[0] = ("bank", f"param -name Bank -min 0 -max {len(BANKS)-1} -default 0 -nsteps {len(BANKS)};")
@@ -248,7 +250,8 @@ def gen_params():
     rwt = o("r vx-wordtick")
     # SPEAK: the key picks the clip (C4 = the current lyric line / first expression)
     clip = o(f"expr if(vxspeak<1.5, ((int(vxline+0.5)+$f1-60)%{NLINES}+{NLINES})%{NLINES}, "
-             f"{NLINES}+(($f1-60)%{NEXPR}+{NEXPR})%{NEXPR})")
+             f"if(vxspeak<2.5, {NLINES}+(($f1-60)%{NEXPR}+{NEXPR})%{NEXPR}, "
+             f"{NLINES + NEXPR}+(($f1-60)%{NPHR}+{NPHR})%{NPHR}))")
     p.c(rwt, clip)
     p.c(clip, o("v vxclipnow"))
     tt = o("t b b")
@@ -550,7 +553,7 @@ def gen_voice():
     p.c(ton, sgo, k1)
     sgs = o("sel 1")
     p.c(sgo, sgs)
-    spe = o(f"expr vxxca; vxxce; (vxxce-vxxca)/{SRC_SR/1000}/pow(2, vxspitch/12); pow(vxxvel/127, 0.7)")
+    spe = o(f"expr vxxca; vxxce; (vxxce-vxxca)/{SPEAK_SR/1000}/pow(2, vxspitch/12); pow(vxxvel/127, 0.7)")
     p.c(sgs, spe)
     sp3 = o("pack f f f")
     for i in range(3):
@@ -1374,8 +1377,8 @@ def gen_main():
     panel(520, 78, 256, 172, "CAST_+_ENVELOPE", P["lilac"])
     sliders(526, 94, AMP_P, P["lilac"], 23)
     lab(526, 222, "SPEAK", 8, P["text"], P["panel"])
-    p.hradio(560, 215, 13, 3, "vx-speak", "vx-speak-set", "empty", P["mint"], "#1e1424", P["text"])
-    lab(604, 222, "OFF_(sing)", 9, P["mint"], P["panel"], "vx-speakname")
+    p.hradio(560, 215, 13, 4, "vx-speak", "vx-speak-set", "empty", P["mint"], "#1e1424", P["text"])
+    lab(618, 222, "OFF_(sing)", 9, P["mint"], P["panel"], "vx-speakname")
     lab(526, 240, "natural_speech:_keys_pick_the_phrase_(C4=LINE)", 8, P["dim"], P["panel"])
 
     panel(4, 254, 254, 222, "SPACE", P["mint"])

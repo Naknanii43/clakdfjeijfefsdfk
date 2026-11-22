@@ -114,14 +114,14 @@
 #X obj 320 68 makefilename vxp%d;
 #X obj 320 92 expr vxxs;
 #X msg 320 116 set \$1;
-#X obj 320 140 expr vxxs*50+vxclipnow;
+#X obj 320 140 expr vxxs*122+vxclipnow;
 #X obj 320 164 text get vxspk;
 #X obj 320 188 unpack f f;
 #X obj 320 212 v vxxca;
 #X obj 320 236 v vxxce;
 #X obj 320 260 expr vxxspk;
 #X obj 320 284 sel 1;
-#X obj 320 308 expr vxxca \; vxxce \; (vxxce-vxxca)/22.05/pow(2 \, vxspitch/12) \; pow(vxxvel/127 \, 0.7);
+#X obj 320 308 expr vxxca \; vxxce \; (vxxce-vxxca)/16.0/pow(2 \, vxspitch/12) \; pow(vxxvel/127 \, 0.7);
 #X obj 320 332 pack f f f;
 #X msg 320 356 \$1 \, \$2 \$3;
 #X obj 320 380 pack f f;

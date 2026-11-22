@@ -143,7 +143,13 @@ jobs:
       - name: Store builds on the 'builds' branch
         run: |
           mkdir -p /tmp/b && cp *-macOS-Universal.zip /tmp/b/
-          cd /tmp/b && git init -q -b builds
+          cd /tmp/b
+          # git hosts refuse files over 100 MB: split big zips (cat the parts back together)
+          for z in *.zip; do
+            if [ "$(stat -f%z "$z")" -gt 95000000 ]; then split -b 90m "$z" "$z.part-" && rm "$z"; fi
+          done
+          ls -la
+          git init -q -b builds
           git -c user.name=ci -c user.email=ci@users.noreply.github.com add .
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "build ${GITHUB_SHA::7}"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" builds

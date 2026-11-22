@@ -26,7 +26,7 @@ import soundfile as sf
 from scipy.signal import resample_poly
 
 sys.path.insert(0, os.path.dirname(__file__))
-from voxel_words import NSPEAKERS, SPEAK_CLIPS, SRC_SR, WORDS, tts_text  # noqa: E402
+from voxel_words import NSPEAKERS, SPEAK_CLIPS, SPEAK_SR, SRC_SR, WORDS, tts_text  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OUT = os.path.join(ROOT, "Voxel", "voices")
@@ -228,19 +228,21 @@ def main():
         audio = np.concatenate(buf)
         sf.write(os.path.join(OUT, f"voice{k}.wav"), audio, SRC_SR, subtype="PCM_16")
         # SPEAK clips: natural speech, untouched pitch, loudness-matched
-        sbuf, spos = [np.zeros(int(0.05 * SRC_SR))], int(0.05 * SRC_SR)
+        sbuf, spos = [np.zeros(int(0.05 * SPEAK_SR))], int(0.05 * SPEAK_SR)
+        g = np.gcd(SRC_SR, SPEAK_SR)
         for text in SPEAK_CLIPS:
             y = trim(tts.say(text, spk, slow=1.0, natural=True), db=-45)
-            fl = min(len(y) // 4, int(0.004 * SRC_SR))
+            y = resample_poly(y, SPEAK_SR // g, SRC_SR // g)
+            fl = min(len(y) // 4, int(0.004 * SPEAK_SR))
             y[:fl] *= np.linspace(0, 1, fl)
             y[-fl:] *= np.linspace(1, 0, fl)
             env = np.convolve(y ** 2, np.ones(1024) / 1024, "same")
             loud = np.sqrt(np.percentile(env, 90)) + 1e-9
             y = np.clip(y * (0.14 / loud), -0.99, 0.99)
             speak_lines.append(f"{spos} {spos + len(y)};")
-            sbuf += [y, np.zeros(int(0.04 * SRC_SR))]
-            spos += len(y) + int(0.04 * SRC_SR)
-        sf.write(os.path.join(OUT, f"speak{k}.wav"), np.concatenate(sbuf), SRC_SR, subtype="PCM_16")
+            sbuf += [y, np.zeros(int(0.04 * SPEAK_SR))]
+            spos += len(y) + int(0.04 * SPEAK_SR)
+        sf.write(os.path.join(OUT, f"speak{k}.wav"), np.concatenate(sbuf), SPEAK_SR, subtype="PCM_16")
         voices_lines.append(f"{fref:.3f};")
         meta.append(dict(slot=k, tone="warm" if k % 2 == 0 else "bright", speaker_id=spk,
                          speaking_pitch=round(f0, 1), sung_pitch=round(fref, 1),

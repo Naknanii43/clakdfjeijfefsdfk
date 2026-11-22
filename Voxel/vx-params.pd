@@ -176,7 +176,7 @@
 #X obj 950 352 expr if(random(0 \, 100)<vxlyrics*100 \, random(0 \, 30) \, vxcurline);
 #X obj 950 376 v vxcurline;
 #X obj 950 400 r vx-wordtick;
-#X obj 950 424 expr if(vxspeak<1.5 \, ((int(vxline+0.5)+\$f1-60)%30+30)%30 \, 30+((\$f1-60)%20+20)%20);
+#X obj 950 424 expr if(vxspeak<1.5 \, ((int(vxline+0.5)+\$f1-60)%30+30)%30 \, if(vxspeak<2.5 \, 30+((\$f1-60)%52+52)%52 \, 82+((\$f1-60)%40+40)%40));
 #X obj 950 448 v vxclipnow;
 #X obj 950 472 t b b;
 #X obj 950 496 timer;
