@@ -1,0 +1,4 @@
+Voices: synthesised with Piper TTS (MIT, https://github.com/OHF-Voice/piper1-gpl) using the
+en_US-libritts_r-medium multi-speaker model, trained on the LibriTTS-R corpus
+(CC BY 4.0, Koizumi et al. 2023, derived from LibriVox public-domain audiobooks).
+Re-synthesised at a steady pitch with the WORLD vocoder (pyworld, MIT).
